@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function householdIdForUser(uid) {
+      return get(/databases/$(database)/documents/userMemberships/$(uid)).data.householdId;
+    }
+
+    function isHouseholdMember(householdId) {
+      return signedIn() && householdIdForUser(request.auth.uid) == householdId;
+    }
+
+    match /userMemberships/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /householdInvites/{code} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    match /bringShares/{token} {
+      allow get: if resource.data.expiresAt > request.time;
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.token == token
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.expiresAt > request.time
+        && isHouseholdMember(request.resource.data.householdId);
+      allow update, delete: if false;
+    }
+
+    match /households/{householdId} {
+      allow read, write: if isHouseholdMember(householdId);
+
+      match /members/{uid} {
+        allow read, write: if isHouseholdMember(householdId);
+      }
+
+      match /recipes/{recipeId} {
+        allow read, write: if isHouseholdMember(householdId);
+      }
+
+      match /mealPlan/{entryId} {
+        allow read, write: if isHouseholdMember(householdId);
+      }
+
+      match /meta/{docId} {
+        allow read, write: if isHouseholdMember(householdId);
+      }
+    }
+  }
+}

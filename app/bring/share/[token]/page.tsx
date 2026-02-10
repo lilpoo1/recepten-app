@@ -1,0 +1,196 @@
+import Link from "next/link";
+import Script from "next/script";
+import { notFound } from "next/navigation";
+import { BringShareItem, BringShareSnapshot } from "@/types";
+
+export const dynamic = "force-dynamic";
+
+interface FirestoreField {
+    stringValue?: string;
+    integerValue?: string;
+    doubleValue?: number;
+    timestampValue?: string;
+    arrayValue?: {
+        values?: Array<{
+            mapValue?: {
+                fields?: Record<string, FirestoreField>;
+            };
+        }>;
+    };
+}
+
+interface FirestoreDocumentResponse {
+    fields?: Record<string, FirestoreField>;
+}
+
+function getString(fields: Record<string, FirestoreField>, key: string): string {
+    return fields[key]?.stringValue ?? "";
+}
+
+function getNumber(fields: Record<string, FirestoreField>, key: string): number {
+    const field = fields[key];
+    if (!field) {
+        return 0;
+    }
+    if (typeof field.doubleValue === "number") {
+        return field.doubleValue;
+    }
+    if (typeof field.integerValue === "string") {
+        const parsed = Number(field.integerValue);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+}
+
+function getTimestamp(fields: Record<string, FirestoreField>, key: string): number {
+    const value = fields[key]?.timestampValue;
+    if (!value) {
+        return 0;
+    }
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function getItems(fields: Record<string, FirestoreField>, key: string): BringShareItem[] {
+    const values = fields[key]?.arrayValue?.values ?? [];
+    return values
+        .map((item) => {
+            const mapFields = item.mapValue?.fields ?? {};
+            return {
+                name: mapFields.name?.stringValue ?? "",
+                amount:
+                    typeof mapFields.amount?.doubleValue === "number"
+                        ? mapFields.amount.doubleValue
+                        : Number(mapFields.amount?.integerValue ?? "0"),
+                unit: mapFields.unit?.stringValue ?? "",
+            };
+        })
+        .filter((item) => item.name.length > 0);
+}
+
+function formatAmount(amount: number): string {
+    return Number.isInteger(amount)
+        ? amount.toString()
+        : amount.toLocaleString("nl-NL", { maximumFractionDigits: 1 });
+}
+
+function formatIngredient(item: BringShareItem): string {
+    const amount = formatAmount(item.amount);
+    return `${amount} ${item.unit} ${item.name}`.trim();
+}
+
+async function fetchShareSnapshot(token: string): Promise<BringShareSnapshot | null> {
+    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+    if (!projectId || !apiKey) {
+        return null;
+    }
+
+    const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/bringShares/${encodeURIComponent(
+        token
+    )}?key=${apiKey}`;
+    const response = await fetch(endpoint, { cache: "no-store" });
+    if (response.status === 404) {
+        return null;
+    }
+    if (!response.ok) {
+        throw new Error("Kon Bring-share snapshot niet laden.");
+    }
+
+    const payload = (await response.json()) as FirestoreDocumentResponse;
+    const fields = payload.fields ?? {};
+    const expiresAt = getTimestamp(fields, "expiresAt");
+    if (!expiresAt || expiresAt <= Date.now()) {
+        return null;
+    }
+
+    return {
+        token: getString(fields, "token") || token,
+        householdId: getString(fields, "householdId"),
+        createdBy: getString(fields, "createdBy"),
+        createdAt: getTimestamp(fields, "createdAt"),
+        expiresAt,
+        title: getString(fields, "title") || "Bring snapshot",
+        items: getItems(fields, "items"),
+        servings: getNumber(fields, "servings") || 1,
+        sourceWeekStart: getString(fields, "sourceWeekStart"),
+    };
+}
+
+export default async function BringSharePage({
+    params,
+}: {
+    params: Promise<{ token: string }>;
+}) {
+    const { token } = await params;
+    const snapshot = await fetchShareSnapshot(token);
+    if (!snapshot) {
+        return (
+            <div className="mx-auto min-h-screen max-w-md bg-white p-6">
+                <h1 className="text-2xl font-bold text-gray-900">Bring-link ongeldig</h1>
+                <p className="mt-3 text-sm text-gray-600">
+                    Deze link bestaat niet of is verlopen (24 uur geldig).
+                </p>
+                <Link href="/" className="mt-4 inline-block text-sm font-semibold text-green-700">
+                    Terug naar ReceptenApp
+                </Link>
+            </div>
+        );
+    }
+
+    if (snapshot.items.length === 0) {
+        notFound();
+    }
+
+    const expiresAtLabel = new Date(snapshot.expiresAt).toLocaleString("nl-NL", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+
+    return (
+        <div className="mx-auto min-h-screen max-w-md bg-white p-6">
+            <Script src="//platform.getbring.com/widgets/import.js" strategy="afterInteractive" />
+
+            <h1 className="text-2xl font-bold text-gray-900">{snapshot.title}</h1>
+            <p className="mt-2 text-sm text-gray-600">Verloopt: {expiresAtLabel}</p>
+
+            <div
+                className="mt-4 flex justify-center"
+                data-bring-import=""
+                data-bring-base-quantity="1"
+                data-bring-requested-quantity="1"
+                data-bring-language="nl"
+            >
+                <a
+                    href="https://www.getbring.com"
+                    className="block w-full rounded-lg bg-red-600 px-6 py-3 text-center font-bold text-white shadow hover:bg-red-700"
+                >
+                    Importeer naar Bring
+                </a>
+            </div>
+
+            <div className="mt-6 rounded-lg bg-gray-50 p-4 text-left" itemScope itemType="https://schema.org/Recipe">
+                <h2 className="font-semibold text-gray-900" itemProp="name">
+                    {snapshot.title}
+                </h2>
+                <p className="mt-1 text-xs text-gray-500" itemProp="recipeYield">
+                    {snapshot.servings} lijst
+                </p>
+                <ul className="mt-3 list-inside list-disc text-sm text-gray-700">
+                    {snapshot.items.map((item, index) => (
+                        <li key={`${item.name}-${index}`} itemProp="recipeIngredient">
+                            {formatIngredient(item)}
+                        </li>
+                    ))}
+                </ul>
+            </div>
+
+            <p className="mt-6 text-xs text-gray-500">
+                Als Bring niet automatisch importeert, kopieer deze items handmatig in Bring.
+            </p>
+        </div>
+    );
+}

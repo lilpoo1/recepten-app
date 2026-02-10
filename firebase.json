@@ -1,0 +1,19 @@
+{
+  "apphosting": [
+    {
+      "backendId": "receptenapp",
+      "rootDir": ".",
+      "ignore": [
+        "node_modules",
+        "**/node_modules/**",
+        ".git",
+        ".git/**",
+        "firebase-debug.log",
+        "firebase-debug.*.log"
+      ]
+    }
+  ],
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}
