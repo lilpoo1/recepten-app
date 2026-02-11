@@ -50,8 +50,8 @@ function AddRecipeContent() {
                     </button>
                 </div>
 
-                <div className="flex gap-4 text-sm">
-                    <div className="flex-1">
+                <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                    <div className="min-w-0">
                         <label className="mb-1 block text-xs text-gray-500">Type</label>
                         <select
                             value={selectedType}
@@ -63,7 +63,7 @@ function AddRecipeContent() {
                             <option value="other">Anders</option>
                         </select>
                     </div>
-                    <div className="w-24">
+                    <div className="min-w-0">
                         <label className="mb-1 block text-xs text-gray-500">Personen</label>
                         <input
                             type="number"

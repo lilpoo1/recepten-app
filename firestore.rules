@@ -9,8 +9,20 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/userMemberships/$(uid)).data.householdId;
     }
 
-    function isHouseholdMember(householdId) {
+    function householdIdForUserAfter(uid) {
+      return getAfter(/databases/$(database)/documents/userMemberships/$(uid)).data.householdId;
+    }
+
+    function isHouseholdMemberNow(householdId) {
       return signedIn() && householdIdForUser(request.auth.uid) == householdId;
+    }
+
+    function isHouseholdMemberNowOrPending(householdId) {
+      return signedIn()
+        && (
+          householdIdForUser(request.auth.uid) == householdId
+          || householdIdForUserAfter(request.auth.uid) == householdId
+        );
     }
 
     match /userMemberships/{uid} {
@@ -29,27 +41,32 @@ service cloud.firestore {
         && request.resource.data.token == token
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.expiresAt > request.time
-        && isHouseholdMember(request.resource.data.householdId);
+        && isHouseholdMemberNow(request.resource.data.householdId);
       allow update, delete: if false;
     }
 
     match /households/{householdId} {
-      allow read, write: if isHouseholdMember(householdId);
+      allow read: if isHouseholdMemberNow(householdId);
+      allow write: if isHouseholdMemberNowOrPending(householdId);
 
       match /members/{uid} {
-        allow read, write: if isHouseholdMember(householdId);
+        allow read: if isHouseholdMemberNow(householdId);
+        allow write: if isHouseholdMemberNowOrPending(householdId);
       }
 
       match /recipes/{recipeId} {
-        allow read, write: if isHouseholdMember(householdId);
+        allow read: if isHouseholdMemberNow(householdId);
+        allow write: if isHouseholdMemberNowOrPending(householdId);
       }
 
       match /mealPlan/{entryId} {
-        allow read, write: if isHouseholdMember(householdId);
+        allow read: if isHouseholdMemberNow(householdId);
+        allow write: if isHouseholdMemberNowOrPending(householdId);
       }
 
       match /meta/{docId} {
-        allow read, write: if isHouseholdMember(householdId);
+        allow read: if isHouseholdMemberNow(householdId);
+        allow write: if isHouseholdMemberNowOrPending(householdId);
       }
     }
   }

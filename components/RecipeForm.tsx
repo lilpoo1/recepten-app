@@ -96,7 +96,7 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                 />
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                     <label className="block text-sm font-medium text-gray-700">Tijd (min)</label>
                     <input
@@ -141,8 +141,11 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                 <label className="mb-2 block text-sm font-medium text-gray-700">Ingredienten</label>
                 <div className="mb-2 space-y-2">
                     {ingredients.map((ingredient, index) => (
-                        <div key={`${ingredient.name}-${index}`} className="flex justify-between rounded bg-gray-50 p-2 text-sm">
-                            <span>
+                        <div
+                            key={`${ingredient.name}-${index}`}
+                            className="flex items-start justify-between gap-2 rounded bg-gray-50 p-2 text-sm"
+                        >
+                            <span className="min-w-0 break-words">
                                 {ingredient.amount} {ingredient.unit} {ingredient.name}
                             </span>
                             <button
@@ -150,45 +153,47 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                                 onClick={() =>
                                     setIngredients((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
                                 }
-                                className="text-red-500"
+                                className="shrink-0 text-red-500"
                             >
                                 x
                             </button>
                         </div>
                     ))}
                 </div>
-                <div className="flex gap-2">
-                    <input
-                        placeholder="Aantal"
-                        type="number"
-                        value={newIngredient.amount}
-                        onChange={(event) =>
-                            setNewIngredient((prev) => ({ ...prev, amount: event.target.value }))
-                        }
-                        className="w-20 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
-                    />
-                    <input
-                        placeholder="Eenheid"
-                        value={newIngredient.unit}
-                        onChange={(event) =>
-                            setNewIngredient((prev) => ({ ...prev, unit: event.target.value }))
-                        }
-                        className="w-24 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
-                    />
-                    <input
-                        placeholder="Ingredient"
-                        value={newIngredient.name}
-                        onChange={(event) =>
-                            setNewIngredient((prev) => ({ ...prev, name: event.target.value }))
-                        }
-                        className="flex-1 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
-                    />
+                <div className="space-y-2">
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] gap-2">
+                        <input
+                            placeholder="Aantal"
+                            type="number"
+                            value={newIngredient.amount}
+                            onChange={(event) =>
+                                setNewIngredient((prev) => ({ ...prev, amount: event.target.value }))
+                            }
+                            className="w-full min-w-0 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
+                        />
+                        <input
+                            placeholder="Eenheid"
+                            value={newIngredient.unit}
+                            onChange={(event) =>
+                                setNewIngredient((prev) => ({ ...prev, unit: event.target.value }))
+                            }
+                            className="w-full min-w-0 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
+                        />
+                        <input
+                            placeholder="Ingredient"
+                            value={newIngredient.name}
+                            onChange={(event) =>
+                                setNewIngredient((prev) => ({ ...prev, name: event.target.value }))
+                            }
+                            className="w-full min-w-0 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
+                        />
+                    </div>
                     <button
                         type="button"
                         onClick={addIngredient}
-                        className="rounded-md bg-green-100 px-3 text-green-700"
+                        className="w-full rounded-md bg-green-100 px-3 py-2 text-sm font-medium text-green-700"
                     >
-                        +
+                        Voeg ingredient toe
                     </button>
                 </div>
             </div>
@@ -198,34 +203,34 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                 <div className="mb-2 space-y-2">
                     {steps.map((step, index) => (
                         <div key={`${step}-${index}`} className="flex gap-2 rounded bg-gray-50 p-2 text-sm">
-                            <span className="font-bold text-gray-400">{index + 1}.</span>
-                            <p className="flex-1">{step}</p>
+                            <span className="shrink-0 font-bold text-gray-400">{index + 1}.</span>
+                            <p className="min-w-0 flex-1 break-words">{step}</p>
                             <button
                                 type="button"
                                 onClick={() =>
                                     setSteps((prev) => prev.filter((_, stepIndex) => stepIndex !== index))
                                 }
-                                className="text-red-500"
+                                className="shrink-0 text-red-500"
                             >
                                 x
                             </button>
                         </div>
                     ))}
                 </div>
-                <div className="flex gap-2">
+                <div className="space-y-2">
                     <textarea
                         placeholder="Stap beschrijving..."
                         value={newStep}
                         onChange={(event) => setNewStep(event.target.value)}
-                        className="flex-1 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
+                        className="w-full min-w-0 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
                         rows={2}
                     />
                     <button
                         type="button"
                         onClick={addStep}
-                        className="h-fit rounded-md bg-green-100 px-3 text-green-700"
+                        className="w-full rounded-md bg-green-100 px-3 py-2 text-sm font-medium text-green-700"
                     >
-                        +
+                        Voeg stap toe
                     </button>
                 </div>
             </div>

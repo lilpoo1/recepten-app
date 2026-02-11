@@ -40,6 +40,16 @@ function ensureDb() {
     return db;
 }
 
+function omitUndefinedFields<T extends Record<string, unknown>>(input: T): DocumentData {
+    const output: DocumentData = {};
+    Object.entries(input).forEach(([key, value]) => {
+        if (value !== undefined) {
+            output[key] = value;
+        }
+    });
+    return output;
+}
+
 function mapHousehold(id: string, data: DocumentData): Household {
     return {
         id,
@@ -145,15 +155,18 @@ export class FirebaseDataSource implements DataSource {
     async addRecipe(householdId: string, userId: string, draft: RecipeDraft): Promise<string> {
         const dbRef = ensureDb();
         const id = createId();
-        await setDoc(doc(dbRef, "households", householdId, "recipes", id), {
-            ...draft,
-            householdId,
-            createdBy: userId,
-            cookingHistory: [],
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            version: 1,
-        });
+        await setDoc(
+            doc(dbRef, "households", householdId, "recipes", id),
+            omitUndefinedFields({
+                ...draft,
+                householdId,
+                createdBy: userId,
+                cookingHistory: [],
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+                version: 1,
+            })
+        );
         return id;
     }
 
@@ -162,11 +175,11 @@ export class FirebaseDataSource implements DataSource {
         const ref = doc(dbRef, "households", householdId, "recipes", recipe.id);
         await setDoc(
             ref,
-            {
+            omitUndefinedFields({
                 ...recipe,
                 updatedAt: serverTimestamp(),
                 version: increment(1),
-            },
+            }),
             { merge: true }
         );
     }

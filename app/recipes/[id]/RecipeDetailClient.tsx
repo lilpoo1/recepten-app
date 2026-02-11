@@ -119,9 +119,9 @@ export default function RecipeDetailClient({ id }: { id: string }) {
                     {recipe.ingredients.map((ingredient, index) => (
                         <li
                             key={`${ingredient.name}-${index}`}
-                            className="flex justify-between border-b border-gray-50 pb-2 text-sm"
+                            className="flex items-start justify-between gap-2 border-b border-gray-50 pb-2 text-sm"
                         >
-                            <span className="font-medium text-gray-900">
+                            <span className="shrink-0 font-medium text-gray-900">
                                 {ingredient.amount > 0
                                     ? (ingredient.amount * scalingFactor).toLocaleString("nl-NL", {
                                         maximumFractionDigits: 1,
@@ -129,7 +129,9 @@ export default function RecipeDetailClient({ id }: { id: string }) {
                                     : ""}{" "}
                                 {ingredient.unit}
                             </span>
-                            <span className="text-gray-600">{ingredient.name}</span>
+                            <span className="min-w-0 break-words text-right text-gray-600">
+                                {ingredient.name}
+                            </span>
                         </li>
                     ))}
                 </ul>

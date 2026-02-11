@@ -26,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="nl">
-      <body className="bg-gray-50 min-h-screen pb-20">
+      <body className="bg-gray-50 min-h-screen overflow-x-hidden pb-20">
         <StoreProvider>
           <main className="max-w-md mx-auto min-h-screen bg-white shadow-sm sm:my-4 sm:rounded-xl overflow-hidden">
             <HouseholdGate>{children}</HouseholdGate>
