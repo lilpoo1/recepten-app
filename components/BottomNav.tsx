@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 export default function BottomNav() {
     const pathname = usePathname();
 
-    if (pathname.startsWith("/household")) {
+    if (pathname.startsWith("/household") || pathname.startsWith("/bring/share")) {
         return null;
     }
 

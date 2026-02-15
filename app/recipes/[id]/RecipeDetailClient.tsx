@@ -56,6 +56,12 @@ export default function RecipeDetailClient({ id }: { id: string }) {
                     </Link>
                 </div>
                 <div className="absolute right-4 top-4 flex gap-2">
+                    <Link
+                        href={`/recipes/${recipe.id}/edit`}
+                        className="rounded-full bg-white/80 px-3 py-2 text-sm text-gray-700 shadow backdrop-blur-sm"
+                    >
+                        Bewerk
+                    </Link>
                     <button
                         onClick={() => void handleDelete()}
                         className="rounded-full bg-white/80 px-3 py-2 text-sm text-red-600 shadow backdrop-blur-sm"
@@ -138,14 +144,18 @@ export default function RecipeDetailClient({ id }: { id: string }) {
 
                 <h2 className="mb-4 text-lg font-bold">Bereiding</h2>
                 <div className="space-y-6">
-                    {recipe.steps.map((step, index) => (
-                        <div key={`${step}-${index}`} className="flex gap-4">
-                            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-green-100 text-sm font-bold text-green-600">
-                                {index + 1}
+                    {recipe.steps.length === 0 ? (
+                        <p className="text-sm text-gray-500">Geen bereidingsstappen toegevoegd.</p>
+                    ) : (
+                        recipe.steps.map((step, index) => (
+                            <div key={`${step}-${index}`} className="flex gap-4">
+                                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-green-100 text-sm font-bold text-green-600">
+                                    {index + 1}
+                                </div>
+                                <p className="mt-1 text-sm leading-relaxed text-gray-700">{step}</p>
                             </div>
-                            <p className="mt-1 text-sm leading-relaxed text-gray-700">{step}</p>
-                        </div>
-                    ))}
+                        ))
+                    )}
                 </div>
             </div>
         </div>

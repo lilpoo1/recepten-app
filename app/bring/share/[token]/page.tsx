@@ -1,7 +1,8 @@
 import Link from "next/link";
-import Script from "next/script";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { BringShareItem, BringShareSnapshot } from "@/types";
+import BringImportWidget from "@/components/BringImportWidget";
 
 export const dynamic = "force-dynamic";
 
@@ -69,9 +70,11 @@ function getItems(fields: Record<string, FirestoreField>, key: string): BringSha
 }
 
 function formatAmount(amount: number): string {
-    return Number.isInteger(amount)
-        ? amount.toString()
-        : amount.toLocaleString("nl-NL", { maximumFractionDigits: 1 });
+    const rounded = Math.round((amount + Number.EPSILON) * 100) / 100;
+    if (Number.isInteger(rounded)) {
+        return rounded.toString();
+    }
+    return rounded.toString();
 }
 
 function formatIngredient(item: BringShareItem): string {
@@ -123,6 +126,18 @@ export default async function BringSharePage({
     params: Promise<{ token: string }>;
 }) {
     const { token } = await params;
+    const requestHeaders = await headers();
+    const hostHeader = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+    const protocolHeader = requestHeaders.get("x-forwarded-proto") ?? "https";
+    const host = hostHeader?.split(",")[0]?.trim();
+    const protocol = protocolHeader.split(",")[0]?.trim() || "https";
+    const shareUrl = host ? `${protocol}://${host}/bring/share/${encodeURIComponent(token)}` : "";
+    const deeplinkFallbackUrl = shareUrl
+        ? `https://api.getbring.com/rest/bringrecipes/deeplink?url=${encodeURIComponent(
+            shareUrl
+        )}&source=web&baseQuantity=1&requestedQuantity=1`
+        : "";
+
     const snapshot = await fetchShareSnapshot(token);
     if (!snapshot) {
         return (
@@ -149,42 +164,66 @@ export default async function BringSharePage({
         hour: "2-digit",
         minute: "2-digit",
     });
+    const ingredientLines = snapshot.items.map(formatIngredient);
+    const recipeJsonLd = {
+        "@context": "https://schema.org",
+        "@type": "Recipe",
+        name: snapshot.title,
+        author: {
+            "@type": "Organization",
+            name: "ReceptenApp",
+        },
+        recipeYield: `${snapshot.servings} lijst`,
+        recipeIngredient: ingredientLines,
+    };
 
     return (
         <div className="mx-auto min-h-screen max-w-md bg-white p-6">
-            <Script src="//platform.getbring.com/widgets/import.js" strategy="afterInteractive" />
+            <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(recipeJsonLd) }}
+            />
 
             <h1 className="text-2xl font-bold text-gray-900">{snapshot.title}</h1>
             <p className="mt-2 text-sm text-gray-600">Verloopt: {expiresAtLabel}</p>
 
-            <div
-                className="mt-4 flex justify-center"
-                data-bring-import=""
-                data-bring-base-quantity="1"
-                data-bring-requested-quantity="1"
-                data-bring-language="nl"
-            >
-                <a
-                    href="https://www.getbring.com"
-                    className="block w-full rounded-lg bg-red-600 px-6 py-3 text-center font-bold text-white shadow hover:bg-red-700"
-                >
-                    Importeer naar Bring
-                </a>
-            </div>
+            <BringImportWidget
+                sourceUrl=""
+                baseQuantity={1}
+                requestedQuantity={1}
+                language="en"
+            />
 
-            <div className="mt-6 rounded-lg bg-gray-50 p-4 text-left" itemScope itemType="https://schema.org/Recipe">
+            {deeplinkFallbackUrl ? (
+                <a
+                    href={deeplinkFallbackUrl}
+                    className="mt-3 block w-full rounded-lg border border-red-200 bg-white px-6 py-3 text-center text-sm font-semibold text-red-700"
+                >
+                    Open Bring deeplink (fallback)
+                </a>
+            ) : null}
+
+            <div className="mt-6 rounded-lg bg-gray-50 p-4 text-left" itemScope itemType="http://schema.org/Recipe">
                 <h2 className="font-semibold text-gray-900" itemProp="name">
                     {snapshot.title}
                 </h2>
-                <p className="mt-1 text-xs text-gray-500" itemProp="recipeYield">
+                <p className="mt-1 text-xs text-gray-500">
+                    Door <span itemProp="author">ReceptenApp</span>
+                </p>
+                <p className="mt-1 text-xs text-gray-500" itemProp="yield">
                     {snapshot.servings} lijst
                 </p>
+                <meta itemProp="recipeYield" content={`${snapshot.servings} lijst`} />
                 <ul className="mt-3 list-inside list-disc text-sm text-gray-700">
-                    {snapshot.items.map((item, index) => (
-                        <li key={`${item.name}-${index}`} itemProp="recipeIngredient">
-                            {formatIngredient(item)}
-                        </li>
-                    ))}
+                    {snapshot.items.map((item, index) => {
+                        const ingredientLine = formatIngredient(item);
+                        return (
+                            <li key={`${item.name}-${index}`}>
+                                <span itemProp="ingredients">{ingredientLine}</span>
+                                <meta itemProp="recipeIngredient" content={ingredientLine} />
+                            </li>
+                        );
+                    })}
                 </ul>
             </div>
 

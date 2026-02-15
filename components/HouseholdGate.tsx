@@ -60,8 +60,10 @@ export default function HouseholdGate({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const { isReady, household, mode } = useStore();
     const isHouseholdRoute = pathname.startsWith("/household");
+    const isBringShareRoute = pathname.startsWith("/bring/share");
+    const isPublicRoute = isHouseholdRoute || isBringShareRoute;
 
-    if (!isReady) {
+    if (!isReady && !isBringShareRoute) {
         return (
             <div className="p-8 text-center text-sm text-gray-500">
                 Gegevens laden...
@@ -69,7 +71,7 @@ export default function HouseholdGate({ children }: { children: ReactNode }) {
         );
     }
 
-    if (!household && !isHouseholdRoute) {
+    if (!household && !isPublicRoute) {
         return (
             <div className="mx-auto max-w-md p-6">
                 <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -103,7 +105,7 @@ export default function HouseholdGate({ children }: { children: ReactNode }) {
 
     return (
         <>
-            {!isHouseholdRoute ? <MigrationBanner /> : null}
+            {!isPublicRoute ? <MigrationBanner /> : null}
             {children}
         </>
     );

@@ -6,6 +6,13 @@ import { endOfWeek, isWithinInterval, startOfWeek } from "date-fns";
 import { ShoppingItem } from "@/types";
 import { useStore } from "@/context/StoreContext";
 
+function resolveIngredientAmount(amount: number): number {
+    if (Number.isFinite(amount) && amount > 0) {
+        return amount;
+    }
+    return 1;
+}
+
 function formatDate(value: number) {
     return new Date(value).toLocaleString("nl-NL", {
         day: "2-digit",
@@ -55,12 +62,13 @@ function ExportContent() {
                 const key = `${ingredient.name.toLowerCase().trim()}-${ingredient.unit
                     .toLowerCase()
                     .trim()}`;
+                const resolvedAmount = resolveIngredientAmount(ingredient.amount);
                 if (items[key]) {
-                    items[key].amount += ingredient.amount * scaling;
+                    items[key].amount += resolvedAmount * scaling;
                 } else {
                     items[key] = {
                         name: ingredient.name,
-                        amount: ingredient.amount * scaling,
+                        amount: resolvedAmount * scaling,
                         unit: ingredient.unit,
                         checked: false,
                     };
@@ -166,6 +174,7 @@ function ExportContent() {
         <div className="min-h-screen bg-white p-6">
             <div className="mx-auto max-w-sm text-center">
                 <h1 className="mb-4 text-2xl font-bold">Bring export</h1>
+                <p className="mb-4 text-xs text-gray-500">Back-up exportpagina</p>
 
                 <div className="mb-6 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">
                     <strong>Let op:</strong> Bring-import vereist een publiek bereikbare URL.
