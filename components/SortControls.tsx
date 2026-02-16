@@ -26,7 +26,7 @@ export default function SortControls({ currentSort, onSortChange }: SortModalPro
                 onClick={() => onSortChange("last_eaten")}
                 className={`px-3 py-1 rounded-full border whitespace-nowrap ${currentSort === "last_eaten" ? "bg-green-100 border-green-200 text-green-700" : "bg-white border-gray-200 text-gray-600"}`}
             >
-                Langst geleden gegeten
+                Langst geleden
             </button>
             <button
                 onClick={() => onSortChange("time")}
