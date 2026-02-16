@@ -16,7 +16,7 @@ export default function EditRecipePage() {
         return (
             <div className="p-8 text-center text-gray-500">
                 Ongeldige recipe-link.
-                <Link href="/" className="mt-4 block text-green-600">
+                <Link href="/recipes" className="mt-4 block text-green-600">
                     Terug naar overzicht
                 </Link>
             </div>
@@ -35,7 +35,7 @@ export default function EditRecipePage() {
         return (
             <div className="p-8 text-center text-gray-500">
                 Recept niet gevonden.
-                <Link href="/" className="mt-4 block text-green-600">
+                <Link href="/recipes" className="mt-4 block text-green-600">
                     Terug naar overzicht
                 </Link>
             </div>

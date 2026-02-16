@@ -282,7 +282,7 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                     baseServings: parsedBaseServings,
                     notes: "",
                 });
-                router.push("/");
+                router.push("/recipes");
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Opslaan mislukt.");

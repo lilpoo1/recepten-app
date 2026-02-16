@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { BringShareItem, BringShareSnapshot } from "@/types";
 import BringImportWidget from "@/components/BringImportWidget";
+import { toHumanQuantity } from "@/lib/utils/quantity";
 
 export const dynamic = "force-dynamic";
 
@@ -69,17 +70,9 @@ function getItems(fields: Record<string, FirestoreField>, key: string): BringSha
         .filter((item) => item.name.length > 0);
 }
 
-function formatAmount(amount: number): string {
-    const rounded = Math.round((amount + Number.EPSILON) * 100) / 100;
-    if (Number.isInteger(rounded)) {
-        return rounded.toString();
-    }
-    return rounded.toString();
-}
-
 function formatIngredient(item: BringShareItem): string {
-    const amount = formatAmount(item.amount);
-    return `${amount} ${item.unit} ${item.name}`.trim();
+    const quantity = toHumanQuantity(item.amount, item.unit);
+    return `${quantity.displayWithUnit} ${item.name}`.trim();
 }
 
 async function fetchShareSnapshot(token: string): Promise<BringShareSnapshot | null> {

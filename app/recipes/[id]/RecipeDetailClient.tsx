@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useStore } from "@/context/StoreContext";
+import { toHumanQuantity } from "@/lib/utils/quantity";
 
 export default function RecipeDetailClient({ id }: { id: string }) {
     const { getRecipeById, deleteRecipe } = useStore();
@@ -16,7 +17,7 @@ export default function RecipeDetailClient({ id }: { id: string }) {
         return (
             <div className="p-8 text-center text-gray-500">
                 Recept niet gevonden.
-                <Link href="/" className="mt-4 block text-green-600">
+                <Link href="/recipes" className="mt-4 block text-green-600">
                     Terug naar overzicht
                 </Link>
             </div>
@@ -28,7 +29,7 @@ export default function RecipeDetailClient({ id }: { id: string }) {
             return;
         }
         await deleteRecipe(recipe.id);
-        router.push("/");
+        router.push("/recipes");
     };
 
     const scalingFactor = servings / recipe.baseServings;
@@ -51,7 +52,7 @@ export default function RecipeDetailClient({ id }: { id: string }) {
                     </div>
                 )}
                 <div className="absolute left-4 top-4">
-                    <Link href="/" className="rounded-full bg-white/80 p-2 shadow backdrop-blur-sm">
+                    <Link href="/recipes" className="rounded-full bg-white/80 p-2 shadow backdrop-blur-sm">
                         {"<"}
                     </Link>
                 </div>
@@ -129,9 +130,7 @@ export default function RecipeDetailClient({ id }: { id: string }) {
                         >
                             <span className="shrink-0 font-medium text-gray-900">
                                 {ingredient.amount > 0
-                                    ? (ingredient.amount * scalingFactor).toLocaleString("nl-NL", {
-                                        maximumFractionDigits: 1,
-                                    })
+                                    ? toHumanQuantity(ingredient.amount * scalingFactor, ingredient.unit).displayWithApprox
                                     : ""}{" "}
                                 {ingredient.unit}
                             </span>

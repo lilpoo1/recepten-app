@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { endOfWeek, isWithinInterval, startOfWeek } from "date-fns";
 import { ShoppingItem } from "@/types";
 import { useStore } from "@/context/StoreContext";
+import { toHumanQuantity } from "@/lib/utils/quantity";
 
 function resolveIngredientAmount(amount: number): number {
     if (Number.isFinite(amount) && amount > 0) {
@@ -78,12 +79,21 @@ function ExportContent() {
         return Object.values(items);
     }, [endDate, mealPlan, recipes, startDate]);
 
+    const roundedShoppingList = useMemo(
+        () =>
+            shoppingList.map((item) => ({
+                ...item,
+                humanQuantity: toHumanQuantity(item.amount, item.unit),
+            })),
+        [shoppingList]
+    );
+
     const exportText = useMemo(
         () =>
-            shoppingList
-                .map((item) => `${Number.parseFloat(item.amount.toFixed(1))} ${item.unit} ${item.name}`)
+            roundedShoppingList
+                .map((item) => `${item.humanQuantity.displayWithUnit} ${item.name}`.trim())
                 .join("\n"),
-        [shoppingList]
+        [roundedShoppingList]
     );
 
     const handleCopy = async (text: string, successMessage: string) => {
@@ -116,9 +126,9 @@ function ExportContent() {
 
             const result = await createBringShareSnapshot({
                 title: `Boodschappen ${startDate.toLocaleDateString("nl-NL")}`,
-                items: shoppingList.map((item) => ({
+                items: roundedShoppingList.map((item) => ({
                     name: item.name,
-                    amount: Number.parseFloat(item.amount.toFixed(1)),
+                    amount: item.humanQuantity.roundedAmount,
                     unit: item.unit,
                 })),
                 servings: 1,
@@ -239,9 +249,9 @@ function ExportContent() {
                 <div className="mb-4 rounded-lg bg-gray-100 p-4 text-left">
                     <h2 className="mb-2 font-bold">Jouw boodschappenlijst</h2>
                     <ul className="list-inside list-disc text-sm">
-                        {shoppingList.map((item, index) => (
+                        {roundedShoppingList.map((item, index) => (
                             <li key={`${item.name}-${index}`}>
-                                {Number.parseFloat(item.amount.toFixed(1))} {item.unit} {item.name}
+                                {item.humanQuantity.displayWithUnit} {item.name}
                             </li>
                         ))}
                     </ul>

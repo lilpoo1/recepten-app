@@ -1,14 +1,17 @@
 ﻿"use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { addDays, endOfWeek, format, isWithinInterval, startOfWeek } from "date-fns";
 import { nl } from "date-fns/locale";
 import { BringShareItem, MealPlanEntry, MealType, ShoppingItem } from "@/types";
 import { useStore } from "@/context/StoreContext";
+import { toHumanQuantity } from "@/lib/utils/quantity";
 
 const BRING_DEEPLINK_URL = "https://api.getbring.com/rest/bringrecipes/deeplink";
-const DISCARD_STORAGE_PREFIX = "shopping:discarded:v2";
+// Keep legacy storage key to preserve existing week preferences.
+const BRING_PREFERENCE_STORAGE_PREFIX = "shopping:discarded:v2";
 
 const MEAL_TYPE_ORDER: Record<MealType, number> = {
     lunch: 0,
@@ -40,9 +43,12 @@ interface MealGroup {
     ingredients: MealIngredient[];
 }
 
-interface DiscardedStoragePayload {
-    discardedMealIds: string[];
-    discardedIngredientIds: string[];
+interface BringPreferenceStoragePayload {
+    notToBringMealIds?: string[];
+    notToBringIngredientIds?: string[];
+    collapsedMealIds?: string[];
+    discardedMealIds?: string[];
+    discardedIngredientIds?: string[];
 }
 
 function getNormalizedIngredientKey(item: Pick<ShoppingItem, "name" | "unit">): string {
@@ -57,8 +63,8 @@ function getMealIngredientId(groupId: string, normalizedKey: string): string {
     return `${groupId}::${normalizedKey}`;
 }
 
-function buildDiscardStorageKey(householdId: string, weekStartKey: string): string {
-    return `${DISCARD_STORAGE_PREFIX}:${householdId}:${weekStartKey}`;
+function buildBringPreferenceStorageKey(householdId: string, weekStartKey: string): string {
+    return `${BRING_PREFERENCE_STORAGE_PREFIX}:${householdId}:${weekStartKey}`;
 }
 
 function resolveIngredientAmount(amount: number): number {
@@ -68,27 +74,20 @@ function resolveIngredientAmount(amount: number): number {
     return 1;
 }
 
-function roundToOneDecimal(value: number): number {
-    return Number.parseFloat(value.toFixed(1));
-}
-
-function formatAmount(value: number): string {
-    return roundToOneDecimal(value).toLocaleString("nl-NL", { maximumFractionDigits: 1 });
-}
-
 export default function ShoppingListPage() {
     const { mealPlan, recipes, mode, household, createBringShareSnapshot } = useStore();
     const [startDate, setStartDate] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
-    const [discardedMealIds, setDiscardedMealIds] = useState<Set<string>>(new Set());
-    const [discardedIngredientIds, setDiscardedIngredientIds] = useState<Set<string>>(new Set());
-    const [discardedLoaded, setDiscardedLoaded] = useState(false);
+    const [notToBringMealIds, setNotToBringMealIds] = useState<Set<string>>(new Set());
+    const [notToBringIngredientIds, setNotToBringIngredientIds] = useState<Set<string>>(new Set());
+    const [bringPreferencesLoaded, setBringPreferencesLoaded] = useState(false);
+    const [collapsedMealIds, setCollapsedMealIds] = useState<Set<string>>(new Set());
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const endDate = endOfWeek(startDate, { weekStartsOn: 1 });
     const householdKey = household?.id ?? "local";
     const weekStartKey = format(startDate, "yyyy-MM-dd");
-    const discardStorageKey = buildDiscardStorageKey(householdKey, weekStartKey);
+    const bringPreferenceStorageKey = buildBringPreferenceStorageKey(householdKey, weekStartKey);
 
     const mealGroups = useMemo(() => {
         const recipesById = new Map(recipes.map((recipe) => [recipe.id, recipe]));
@@ -158,109 +157,131 @@ export default function ShoppingListPage() {
     }, [endDate, mealPlan, recipes, startDate]);
 
     const mealStats = useMemo(() => {
-        const stats = new Map<string, { active: number; discarded: number; allDiscarded: boolean }>();
+        const stats = new Map<string, { toBring: number; notToBring: number; allNotToBring: boolean }>();
 
         mealGroups.forEach((group) => {
-            let active = 0;
-            let discarded = 0;
+            let toBring = 0;
+            let notToBring = 0;
 
             group.ingredients.forEach((ingredient) => {
                 if (
-                    discardedMealIds.has(group.id) ||
-                    discardedIngredientIds.has(ingredient.id)
+                    notToBringMealIds.has(group.id) ||
+                    notToBringIngredientIds.has(ingredient.id)
                 ) {
-                    discarded += 1;
+                    notToBring += 1;
                 } else {
-                    active += 1;
+                    toBring += 1;
                 }
             });
 
             stats.set(group.id, {
-                active,
-                discarded,
-                allDiscarded: group.ingredients.length > 0 && active === 0,
+                toBring,
+                notToBring,
+                allNotToBring: group.ingredients.length > 0 && toBring === 0,
             });
         });
 
         return stats;
-    }, [discardedIngredientIds, discardedMealIds, mealGroups]);
+    }, [mealGroups, notToBringIngredientIds, notToBringMealIds]);
 
     useEffect(() => {
         if (typeof window === "undefined") {
             return;
         }
 
-        setDiscardedLoaded(false);
+        setBringPreferencesLoaded(false);
 
         try {
-            const raw = window.localStorage.getItem(discardStorageKey);
+            const raw = window.localStorage.getItem(bringPreferenceStorageKey);
             if (!raw) {
-                setDiscardedMealIds(new Set());
-                setDiscardedIngredientIds(new Set());
-                setDiscardedLoaded(true);
+                setNotToBringMealIds(new Set());
+                setNotToBringIngredientIds(new Set());
+                setCollapsedMealIds(new Set());
+                setBringPreferencesLoaded(true);
                 return;
             }
 
-            const parsed = JSON.parse(raw) as Partial<DiscardedStoragePayload>;
-            const mealIds = Array.isArray(parsed.discardedMealIds)
-                ? parsed.discardedMealIds.filter((value): value is string => typeof value === "string")
+            const parsed = JSON.parse(raw) as Partial<BringPreferenceStoragePayload>;
+            const mealIds = Array.isArray(parsed.notToBringMealIds)
+                ? parsed.notToBringMealIds.filter((value): value is string => typeof value === "string")
+                : Array.isArray(parsed.discardedMealIds)
+                    ? parsed.discardedMealIds.filter((value): value is string => typeof value === "string")
                 : [];
-            const ingredientIds = Array.isArray(parsed.discardedIngredientIds)
-                ? parsed.discardedIngredientIds.filter((value): value is string => typeof value === "string")
+            const ingredientIds = Array.isArray(parsed.notToBringIngredientIds)
+                ? parsed.notToBringIngredientIds.filter((value): value is string => typeof value === "string")
+                : Array.isArray(parsed.discardedIngredientIds)
+                    ? parsed.discardedIngredientIds.filter((value): value is string => typeof value === "string")
+                : [];
+            const collapsedIds = Array.isArray(parsed.collapsedMealIds)
+                ? parsed.collapsedMealIds.filter((value): value is string => typeof value === "string")
                 : [];
 
-            setDiscardedMealIds(new Set(mealIds));
-            setDiscardedIngredientIds(new Set(ingredientIds));
+            setNotToBringMealIds(new Set(mealIds));
+            setNotToBringIngredientIds(new Set(ingredientIds));
+            setCollapsedMealIds(new Set(collapsedIds));
         } catch {
-            setDiscardedMealIds(new Set());
-            setDiscardedIngredientIds(new Set());
+            setNotToBringMealIds(new Set());
+            setNotToBringIngredientIds(new Set());
+            setCollapsedMealIds(new Set());
         } finally {
-            setDiscardedLoaded(true);
+            setBringPreferencesLoaded(true);
         }
-    }, [discardStorageKey]);
+    }, [bringPreferenceStorageKey]);
 
     useEffect(() => {
-        if (!discardedLoaded || typeof window === "undefined") {
+        if (!bringPreferencesLoaded || typeof window === "undefined") {
             return;
         }
 
-        const payload: DiscardedStoragePayload = {
-            discardedMealIds: Array.from(discardedMealIds),
-            discardedIngredientIds: Array.from(discardedIngredientIds),
+        const mealIds = Array.from(notToBringMealIds);
+        const ingredientIds = Array.from(notToBringIngredientIds);
+        const collapsedIds = Array.from(collapsedMealIds);
+        const payload: BringPreferenceStoragePayload = {
+            notToBringMealIds: mealIds,
+            notToBringIngredientIds: ingredientIds,
+            collapsedMealIds: collapsedIds,
+            discardedMealIds: mealIds,
+            discardedIngredientIds: ingredientIds,
         };
-        window.localStorage.setItem(discardStorageKey, JSON.stringify(payload));
-    }, [discardStorageKey, discardedIngredientIds, discardedLoaded, discardedMealIds]);
+        window.localStorage.setItem(bringPreferenceStorageKey, JSON.stringify(payload));
+    }, [
+        bringPreferenceStorageKey,
+        bringPreferencesLoaded,
+        collapsedMealIds,
+        notToBringIngredientIds,
+        notToBringMealIds,
+    ]);
 
     const totalIngredientRows = useMemo(
         () => mealGroups.reduce((total, group) => total + group.ingredients.length, 0),
         [mealGroups]
     );
 
-    const activeIngredientRows = useMemo(() => {
-        let active = 0;
+    const toBringIngredientRows = useMemo(() => {
+        let toBring = 0;
 
         mealGroups.forEach((group) => {
             group.ingredients.forEach((ingredient) => {
                 if (
-                    !discardedMealIds.has(group.id) &&
-                    !discardedIngredientIds.has(ingredient.id)
+                    !notToBringMealIds.has(group.id) &&
+                    !notToBringIngredientIds.has(ingredient.id)
                 ) {
-                    active += 1;
+                    toBring += 1;
                 }
             });
         });
 
-        return active;
-    }, [discardedIngredientIds, discardedMealIds, mealGroups]);
+        return toBring;
+    }, [mealGroups, notToBringIngredientIds, notToBringMealIds]);
 
-    const excludedIngredientRows = totalIngredientRows - activeIngredientRows;
+    const notToBringIngredientRows = totalIngredientRows - toBringIngredientRows;
 
-    const fullyDiscardedMealCount = useMemo(() => {
+    const fullyNotToBringMealCount = useMemo(() => {
         let count = 0;
 
         mealGroups.forEach((group) => {
             const stat = mealStats.get(group.id);
-            if (stat?.allDiscarded) {
+            if (stat?.allNotToBring) {
                 count += 1;
             }
         });
@@ -274,8 +295,8 @@ export default function ShoppingListPage() {
         mealGroups.forEach((group) => {
             group.ingredients.forEach((ingredient) => {
                 if (
-                    discardedMealIds.has(group.id) ||
-                    discardedIngredientIds.has(ingredient.id)
+                    notToBringMealIds.has(group.id) ||
+                    notToBringIngredientIds.has(ingredient.id)
                 ) {
                     return;
                 }
@@ -297,15 +318,15 @@ export default function ShoppingListPage() {
         return Array.from(aggregated.values()).sort((a, b) =>
             a.name.localeCompare(b.name, "nl-NL")
         );
-    }, [discardedIngredientIds, discardedMealIds, mealGroups]);
+    }, [mealGroups, notToBringIngredientIds, notToBringMealIds]);
 
-    const toggleMealDiscard = (group: MealGroup) => {
-        const nextMealIds = new Set(discardedMealIds);
-        const nextIngredientIds = new Set(discardedIngredientIds);
+    const toggleMealBringInclusion = (group: MealGroup) => {
+        const nextMealIds = new Set(notToBringMealIds);
+        const nextIngredientIds = new Set(notToBringIngredientIds);
         const stat = mealStats.get(group.id);
-        const shouldUndiscard = Boolean(stat?.allDiscarded);
+        const shouldBringAll = Boolean(stat?.allNotToBring);
 
-        if (shouldUndiscard) {
+        if (shouldBringAll) {
             nextMealIds.delete(group.id);
             group.ingredients.forEach((ingredient) => {
                 nextIngredientIds.delete(ingredient.id);
@@ -317,65 +338,86 @@ export default function ShoppingListPage() {
             });
         }
 
-        setDiscardedMealIds(nextMealIds);
-        setDiscardedIngredientIds(nextIngredientIds);
+        setNotToBringMealIds(nextMealIds);
+        setNotToBringIngredientIds(nextIngredientIds);
         setError(null);
     };
 
-    const toggleIngredientDiscard = (group: MealGroup, ingredient: MealIngredient) => {
-        const nextIngredientIds = new Set(discardedIngredientIds);
+    const toggleIngredientBringInclusion = (group: MealGroup, ingredient: MealIngredient) => {
+        const nextIngredientIds = new Set(notToBringIngredientIds);
         if (nextIngredientIds.has(ingredient.id)) {
             nextIngredientIds.delete(ingredient.id);
         } else {
             nextIngredientIds.add(ingredient.id);
         }
 
-        const allIngredientsDiscarded = group.ingredients.every((item) =>
+        const allIngredientsNotToBring = group.ingredients.every((item) =>
             nextIngredientIds.has(item.id)
         );
 
-        const nextMealIds = new Set(discardedMealIds);
-        if (allIngredientsDiscarded) {
+        const nextMealIds = new Set(notToBringMealIds);
+        if (allIngredientsNotToBring) {
             nextMealIds.add(group.id);
         } else {
             nextMealIds.delete(group.id);
         }
 
-        setDiscardedMealIds(nextMealIds);
-        setDiscardedIngredientIds(nextIngredientIds);
+        setNotToBringMealIds(nextMealIds);
+        setNotToBringIngredientIds(nextIngredientIds);
         setError(null);
     };
 
-    const resetDiscardedForWeek = () => {
-        setDiscardedMealIds(new Set());
-        setDiscardedIngredientIds(new Set());
+    const toggleMealCollapsed = (groupId: string) => {
+        const nextCollapsedMealIds = new Set(collapsedMealIds);
+        if (nextCollapsedMealIds.has(groupId)) {
+            nextCollapsedMealIds.delete(groupId);
+        } else {
+            nextCollapsedMealIds.add(groupId);
+        }
+
+        setCollapsedMealIds(nextCollapsedMealIds);
+    };
+
+    const resetBringPreferencesForWeek = () => {
+        setNotToBringMealIds(new Set());
+        setNotToBringIngredientIds(new Set());
+        setCollapsedMealIds(new Set());
         setError(null);
 
         if (typeof window !== "undefined") {
-            window.localStorage.removeItem(discardStorageKey);
+            window.localStorage.removeItem(bringPreferenceStorageKey);
         }
     };
 
-    const markWeekAsDiscarded = (sourceGroups: MealGroup[]) => {
-        const nextMealIds = new Set(discardedMealIds);
-        const nextIngredientIds = new Set(discardedIngredientIds);
+    const markWeekAsNotToBring = (sourceGroups: MealGroup[]) => {
+        const nextMealIds = new Set(notToBringMealIds);
+        const nextIngredientIds = new Set(notToBringIngredientIds);
+        const nextCollapsedMealIds = new Set(collapsedMealIds);
 
         sourceGroups.forEach((group) => {
             nextMealIds.add(group.id);
+            nextCollapsedMealIds.add(group.id);
             group.ingredients.forEach((ingredient) => {
                 nextIngredientIds.add(ingredient.id);
             });
         });
 
-        setDiscardedMealIds(nextMealIds);
-        setDiscardedIngredientIds(nextIngredientIds);
+        setNotToBringMealIds(nextMealIds);
+        setNotToBringIngredientIds(nextIngredientIds);
+        setCollapsedMealIds(nextCollapsedMealIds);
 
         if (typeof window !== "undefined") {
-            const payload: DiscardedStoragePayload = {
-                discardedMealIds: Array.from(nextMealIds),
-                discardedIngredientIds: Array.from(nextIngredientIds),
+            const mealIds = Array.from(nextMealIds);
+            const ingredientIds = Array.from(nextIngredientIds);
+            const collapsedIds = Array.from(nextCollapsedMealIds);
+            const payload: BringPreferenceStoragePayload = {
+                notToBringMealIds: mealIds,
+                notToBringIngredientIds: ingredientIds,
+                collapsedMealIds: collapsedIds,
+                discardedMealIds: mealIds,
+                discardedIngredientIds: ingredientIds,
             };
-            window.localStorage.setItem(discardStorageKey, JSON.stringify(payload));
+            window.localStorage.setItem(bringPreferenceStorageKey, JSON.stringify(payload));
         }
     };
 
@@ -392,21 +434,21 @@ export default function ShoppingListPage() {
 
         try {
             if (bringItems.length === 0) {
-                throw new Error("Er zijn geen geselecteerde boodschappen om naar Bring te sturen.");
+                throw new Error("Er zijn geen ingredienten ingesteld op 'Naar Bring'.");
             }
 
             const snapshot = await createBringShareSnapshot({
                 title: `Boodschappen ${startDate.toLocaleDateString("nl-NL")}`,
                 items: bringItems.map((item) => ({
                     name: item.name,
-                    amount: roundToOneDecimal(item.amount),
+                    amount: toHumanQuantity(item.amount, item.unit).roundedAmount,
                     unit: item.unit,
                 })),
                 servings: 1,
                 sourceWeekStart: startDate.toISOString(),
             });
 
-            markWeekAsDiscarded(mealGroups);
+            markWeekAsNotToBring(mealGroups);
 
             const deeplinkUrl = `${BRING_DEEPLINK_URL}?url=${encodeURIComponent(
                 snapshot.url
@@ -431,12 +473,22 @@ export default function ShoppingListPage() {
     return (
         <div className="min-h-screen bg-gray-50 pb-24">
             <div className="sticky top-0 z-10 flex items-center justify-between bg-white px-4 py-3 shadow">
-                <button onClick={prevWeek} className="p-2 text-gray-600">
-                    {"<"}
+                <button
+                    type="button"
+                    onClick={prevWeek}
+                    aria-label="Vorige week"
+                    className="p-2 text-gray-600"
+                >
+                    <Image src="/left-chevron-icon.svg" alt="" aria-hidden="true" width={16} height={16} className="h-4 w-4" />
                 </button>
                 <h1 className="text-lg font-bold">Boodschappen</h1>
-                <button onClick={nextWeek} className="p-2 text-gray-600">
-                    {">"}
+                <button
+                    type="button"
+                    onClick={nextWeek}
+                    aria-label="Volgende week"
+                    className="p-2 text-gray-600"
+                >
+                    <Image src="/right-chevron-icon.svg" alt="" aria-hidden="true" width={16} height={16} className="h-4 w-4" />
                 </button>
             </div>
 
@@ -453,11 +505,12 @@ export default function ShoppingListPage() {
                         <div className="mb-6 space-y-4">
                             {mealGroups.map((group) => {
                                 const stat = mealStats.get(group.id) ?? {
-                                    active: group.ingredients.length,
-                                    discarded: 0,
-                                    allDiscarded: false,
+                                    toBring: group.ingredients.length,
+                                    notToBring: 0,
+                                    allNotToBring: false,
                                 };
-                                const mealFullyDiscarded = stat.allDiscarded;
+                                const mealFullyNotToBring = stat.allNotToBring;
+                                const mealCollapsed = collapsedMealIds.has(group.id);
 
                                 return (
                                     <div
@@ -465,83 +518,107 @@ export default function ShoppingListPage() {
                                         className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"
                                     >
                                         <div className="border-b border-gray-100 bg-gray-50 px-4 py-3">
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div>
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
                                                     <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
                                                         {renderMealDate(group.date)} | {MEAL_TYPE_LABEL[group.mealType]}
                                                     </p>
                                                     <h3 className="text-sm font-semibold text-gray-900">{group.title}</h3>
                                                     <p className="mt-1 text-xs text-gray-500">
-                                                        {group.servings} pers. | {stat.active} actief / {stat.discarded} uitgesloten
+                                                        {group.servings} pers. | {stat.toBring} naar Bring / {stat.notToBring} niet naar Bring
                                                     </p>
                                                 </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleMealDiscard(group)}
-                                                    className={`rounded-md px-3 py-1.5 text-xs font-semibold ${mealFullyDiscarded
-                                                        ? "border border-gray-300 bg-white text-gray-700"
-                                                        : "border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200"
-                                                        }`}
-                                                >
-                                                    {mealFullyDiscarded ? "Alles meenemen" : "Alles uitsluiten"}
-                                                </button>
+                                                <div className="flex flex-shrink-0 flex-col items-end gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleMealCollapsed(group.id)}
+                                                        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                                                    >
+                                                        {mealCollapsed ? "Toon ingredienten" : "Verberg ingredienten"}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleMealBringInclusion(group)}
+                                                        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                                                    >
+                                                        {mealFullyNotToBring ? "Alles naar Bring" : "Niets naar Bring"}
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        <div className="divide-y divide-gray-100">
-                                            {group.ingredients.map((ingredient) => {
-                                                const ingredientDiscarded =
-                                                    discardedMealIds.has(group.id) ||
-                                                    discardedIngredientIds.has(ingredient.id);
-                                                return (
-                                                    <button
-                                                        type="button"
-                                                        key={ingredient.id}
-                                                        onClick={() => toggleIngredientDiscard(group, ingredient)}
-                                                        disabled={mealFullyDiscarded}
-                                                        className={`flex w-full items-center justify-between px-4 py-3 text-left ${mealFullyDiscarded ? "cursor-not-allowed bg-gray-50" : "hover:bg-gray-50"
-                                                            }`}
-                                                    >
-                                                        <div className="flex min-w-0 items-center gap-3">
-                                                            <span
-                                                                className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border text-xs font-bold ${ingredientDiscarded
-                                                                    ? "border-gray-400 bg-gray-300 text-gray-700"
-                                                                    : "border-gray-300 bg-white text-transparent"
+                                        {mealCollapsed ? (
+                                            <div className="px-4 py-3 text-xs text-gray-500">
+                                                Ingredienten zijn verborgen.
+                                            </div>
+                                        ) : (
+                                            <div className="divide-y divide-gray-100">
+                                                {group.ingredients.map((ingredient) => {
+                                                    const ingredientNotToBring =
+                                                        notToBringMealIds.has(group.id) ||
+                                                        notToBringIngredientIds.has(ingredient.id);
+                                                    const ingredientToBring = !ingredientNotToBring;
+
+                                                    return (
+                                                        <div
+                                                            key={ingredient.id}
+                                                            className={`flex items-center justify-between gap-3 px-4 py-3 ${ingredientNotToBring ? "bg-gray-50 opacity-70" : "hover:bg-gray-50"
+                                                                }`}
+                                                        >
+                                                            <div
+                                                                className={`min-w-0 ${ingredientNotToBring ? "text-gray-600 line-through" : "text-gray-800"
                                                                     }`}
-                                                                aria-hidden="true"
                                                             >
-                                                                {ingredientDiscarded ? "−" : "."}
-                                                            </span>
-                                                            <div className={ingredientDiscarded ? "text-gray-500 line-through" : "text-gray-800"}>
                                                                 <span className="mr-1 font-semibold">
-                                                                    {ingredient.amount > 0 ? formatAmount(ingredient.amount) : ""}{" "}
-                                                                    {ingredient.unit}
+                                                                    {ingredient.amount > 0
+                                                                        ? toHumanQuantity(ingredient.amount, ingredient.unit)
+                                                                            .displayWithUnit
+                                                                        : ingredient.unit}
                                                                 </span>
                                                                 <span>{ingredient.name}</span>
                                                             </div>
+                                                            <div className="ml-2 flex flex-shrink-0 items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    role="switch"
+                                                                    aria-checked={ingredientToBring}
+                                                                    aria-label={`${ingredient.name}: ${ingredientToBring ? "Naar Bring" : "Niet naar Bring"}`}
+                                                                    onClick={() => toggleIngredientBringInclusion(group, ingredient)}
+                                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full p-1 transition-colors ${ingredientToBring ? "bg-green-600" : "bg-gray-300"
+                                                                        }`}
+                                                                >
+                                                                    <span
+                                                                        className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${ingredientToBring ? "translate-x-5" : "translate-x-0"
+                                                                            }`}
+                                                                    />
+                                                                </button>
+                                                                <span
+                                                                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ingredientToBring
+                                                                        ? "bg-green-100 text-green-800"
+                                                                        : "bg-gray-200 text-gray-700"
+                                                                        }`}
+                                                                >
+                                                                    {ingredientToBring ? "Naar Bring" : "Niet naar Bring"}
+                                                                </span>
+                                                            </div>
                                                         </div>
-                                                        {ingredientDiscarded ? (
-                                                            <span className="ml-3 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-700">
-                                                                Uitgesloten
-                                                            </span>
-                                                        ) : null}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
                         </div>
 
                         <p className="mb-1 text-xs text-gray-600">
-                            {activeIngredientRows} ingredienten worden verstuurd
+                            {toBringIngredientRows} ingredienten gaan naar Bring
                         </p>
                         <p className="mb-1 text-xs text-gray-600">
-                            {excludedIngredientRows} ingredienten uitgesloten
+                            {notToBringIngredientRows} ingredienten niet naar Bring
                         </p>
                         <p className="mb-3 text-xs text-gray-600">
-                            {fullyDiscardedMealCount} maaltijden volledig uitgesloten
+                            {fullyNotToBringMealCount} maaltijden volledig niet naar Bring
                         </p>
 
                         {error ? (
@@ -559,18 +636,18 @@ export default function ShoppingListPage() {
                         <button
                             type="button"
                             onClick={() => void handleSendToBring()}
-                            disabled={busy || mode !== "firebase" || !discardedLoaded}
-                            className="block w-full rounded-lg bg-red-600 py-3 text-center font-bold text-white shadow hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={busy || mode !== "firebase" || !bringPreferencesLoaded}
+                            className="block w-full rounded-lg bg-green-600 py-3 text-center font-bold text-white shadow hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             {busy ? "Bezig met versturen..." : "Stuur naar Bring"}
                         </button>
 
                         <button
                             type="button"
-                            onClick={resetDiscardedForWeek}
+                            onClick={resetBringPreferencesForWeek}
                             className="mt-3 block w-full rounded-lg border border-gray-300 bg-white py-2 text-center text-sm font-medium text-gray-700 hover:bg-gray-50"
                         >
-                            Herstel uitsluitingen voor deze week
+                            Herstel Bring-keuzes voor deze week
                         </button>
 
                         <Link
