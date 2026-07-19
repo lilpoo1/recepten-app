@@ -24,11 +24,15 @@ import {
     FirebaseHouseholdDataSource,
 } from "@/lib/data/firebase-data-source";
 import { LocalHouseholdDataSource } from "@/lib/data/local-household-data-source";
-import { normalizeMealPlanEntry, normalizeRecipe } from "@/lib/data/normalize";
+import {
+    persistHouseholdCache,
+    readHouseholdCache,
+    readLocalMealPlan,
+    readLocalRecipes,
+    readLocalValue,
+    writeLocalValue,
+} from "@/lib/storage/browser-storage";
 
-const CACHE_KEY_PREFIX = "cache:household:";
-const LEGACY_RECIPES_KEY = "recipes";
-const LEGACY_MEAL_PLAN_KEY = "mealPlan";
 const MIGRATION_DISMISSED_PREFIX = "migration:dismissed:";
 
 interface StoreContextType {
@@ -61,65 +65,12 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-function readJsonArray(key: string): unknown[] {
-    if (typeof window === "undefined") {
-        return [];
-    }
-
-    const raw = window.localStorage.getItem(key);
-    if (!raw) {
-        return [];
-    }
-
-    try {
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
-    }
-}
-
-function writeHouseholdCache(householdId: string, recipes: Recipe[], mealPlan: MealPlanEntry[]) {
-    if (typeof window === "undefined") {
-        return;
-    }
-    window.localStorage.setItem(
-        `${CACHE_KEY_PREFIX}${householdId}`,
-        JSON.stringify({ recipes, mealPlan })
-    );
-}
-
-function readHouseholdCache(householdId: string): { recipes: Recipe[]; mealPlan: MealPlanEntry[] } | null {
-    if (typeof window === "undefined") {
-        return null;
-    }
-
-    const raw = window.localStorage.getItem(`${CACHE_KEY_PREFIX}${householdId}`);
-    if (!raw) {
-        return null;
-    }
-
-    try {
-        const parsed = JSON.parse(raw) as { recipes?: Recipe[]; mealPlan?: MealPlanEntry[] };
-        return {
-            recipes: Array.isArray(parsed.recipes) ? parsed.recipes : [],
-            mealPlan: Array.isArray(parsed.mealPlan) ? parsed.mealPlan : [],
-        };
-    } catch {
-        return null;
-    }
-}
-
-function normalizeLegacyData(
+async function normalizeLegacyData(
     householdId: string,
     userId: string
-): { recipes: Recipe[]; mealPlan: MealPlanEntry[] } {
-    const recipes = readJsonArray(LEGACY_RECIPES_KEY).map((item) =>
-        normalizeRecipe(item, householdId, userId)
-    );
-    const mealPlan = readJsonArray(LEGACY_MEAL_PLAN_KEY).map((item) =>
-        normalizeMealPlanEntry(item, householdId, userId)
-    );
+): Promise<{ recipes: Recipe[]; mealPlan: MealPlanEntry[] }> {
+    const recipes = await readLocalRecipes(householdId, userId);
+    const mealPlan = await readLocalMealPlan(householdId, userId);
     return { recipes, mealPlan };
 }
 
@@ -241,12 +192,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
         let active = true;
         const hydrateFromCache = async () => {
-            const cached = readHouseholdCache(household.id);
-            if (!active || !cached) {
-                return;
+            try {
+                const cached = await readHouseholdCache(household.id);
+                if (!active || !cached) {
+                    return;
+                }
+                setRecipes(cached.recipes);
+                setMealPlan(cached.mealPlan);
+            } catch (error) {
+                console.warn("Huishoudcache kon niet worden geladen.", error);
             }
-            setRecipes(cached.recipes);
-            setMealPlan(cached.mealPlan);
         };
         void hydrateFromCache();
 
@@ -256,7 +211,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             }
             setRecipes(snapshot.recipes);
             setMealPlan(snapshot.mealPlan);
-            writeHouseholdCache(household.id, snapshot.recipes, snapshot.mealPlan);
+            void persistHouseholdCache(household.id, snapshot.recipes, snapshot.mealPlan);
         };
 
         void dataSource.loadHouseholdData(household.id).then(applySnapshot);
@@ -284,12 +239,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 return;
             }
 
-            const local = normalizeLegacyData(household.id, user.uid);
-            const dismissedAtRaw =
-                typeof window !== "undefined"
-                    ? window.localStorage.getItem(`${MIGRATION_DISMISSED_PREFIX}${household.id}`)
-                    : null;
-            const dismissedAt = dismissedAtRaw ? Number(dismissedAtRaw) : undefined;
+            const local = await normalizeLegacyData(household.id, user.uid);
+            const dismissedAt =
+                (await readLocalValue<number>(`${MIGRATION_DISMISSED_PREFIX}${household.id}`)) ??
+                undefined;
 
             if (remoteState.done || (local.recipes.length === 0 && local.mealPlan.length === 0)) {
                 setMigration({
@@ -420,7 +373,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             return;
         }
         const session = requireSession();
-        const legacy = normalizeLegacyData(session.householdId, session.userId);
+            const legacy = await normalizeLegacyData(session.householdId, session.userId);
 
         const titleToId = new Map<string, string>();
         recipes.forEach((recipe) => {
@@ -482,12 +435,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             return;
         }
         const dismissedAt = Date.now();
-        if (typeof window !== "undefined") {
-            window.localStorage.setItem(
-                `${MIGRATION_DISMISSED_PREFIX}${household.id}`,
-                dismissedAt.toString()
-            );
-        }
+        void writeLocalValue(`${MIGRATION_DISMISSED_PREFIX}${household.id}`, dismissedAt).catch(
+            (error) => console.warn("Migratievoorkeur kon niet offline worden opgeslagen.", error)
+        );
         setMigration((prev) => (prev ? { ...prev, dismissedAt } : prev));
     };
 

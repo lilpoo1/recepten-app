@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import NextImage from "next/image";
 import { useStore } from "@/context/StoreContext";
 import { Ingredient, Recipe } from "@/types";
+import { composeQuantityTextFromLegacy } from "@/lib/utils/quantity";
 
 const MAX_IMAGE_DATA_URL_LENGTH = 350 * 1024;
 const MAX_IMAGE_DIMENSIONS = [1280, 1024, 800] as const;
@@ -13,8 +14,7 @@ const JPEG_QUALITIES = [0.8, 0.7, 0.6] as const;
 interface EditableIngredientRow {
     id: string;
     name: string;
-    unit: string;
-    amountInput: string;
+    quantityText: string;
 }
 
 interface EditableStepRow {
@@ -84,26 +84,16 @@ async function compressImageFile(file: File): Promise<string> {
     throw new Error("Afbeelding is te groot. Kies een kleinere foto.");
 }
 
-function parseOptionalAmount(rawValue: string): number | null {
-    const normalized = rawValue.trim();
-    if (!normalized) {
-        return 0;
+function toEditableQuantityText(ingredient: Ingredient): string {
+    if (typeof ingredient.quantityText === "string" && ingredient.quantityText.trim()) {
+        return ingredient.quantityText.trim();
     }
 
-    const parsed = Number.parseFloat(normalized.replace(",", "."));
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-        return null;
-    }
-
-    return parsed;
-}
-
-function toAmountInput(amount: number): string {
-    if (!Number.isFinite(amount) || amount <= 0) {
-        return "";
-    }
-
-    return String(amount);
+    const legacy = ingredient as Ingredient & { amount?: number; unit?: string };
+    return composeQuantityTextFromLegacy(
+        typeof legacy.amount === "number" ? legacy.amount : 0,
+        typeof legacy.unit === "string" ? legacy.unit : ""
+    );
 }
 
 export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }) {
@@ -119,8 +109,7 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
         (initialRecipe?.ingredients ?? []).map((ingredient, index) => ({
             id: `ingredient-${index}`,
             name: ingredient.name,
-            unit: ingredient.unit,
-            amountInput: toAmountInput(ingredient.amount),
+            quantityText: toEditableQuantityText(ingredient),
         }))
     );
     const [steps, setSteps] = useState<EditableStepRow[]>(
@@ -130,7 +119,7 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
         }))
     );
     const [image, setImage] = useState<string | undefined>(initialRecipe?.image);
-    const [newIngredient, setNewIngredient] = useState({ name: "", amount: "", unit: "" });
+    const [newIngredient, setNewIngredient] = useState({ name: "", quantityText: "" });
     const [newStep, setNewStep] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
@@ -180,22 +169,15 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
             return;
         }
 
-        const parsedAmount = parseOptionalAmount(newIngredient.amount);
-        if (parsedAmount === null) {
-            setError("Hoeveelheid moet leeg zijn of groter dan 0.");
-            return;
-        }
-
         setIngredients((prev) => [
             ...prev,
             {
                 id: createRowId("ingredient"),
                 name,
-                unit: newIngredient.unit.trim(),
-                amountInput: parsedAmount > 0 ? String(parsedAmount) : "",
+                quantityText: newIngredient.quantityText.trim(),
             },
         ]);
-        setNewIngredient({ name: "", amount: "", unit: "" });
+        setNewIngredient({ name: "", quantityText: "" });
     };
 
     const addStep = () => {
@@ -240,18 +222,16 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                     throw new Error(`Controleer ingredient ${index + 1}: naam is verplicht.`);
                 }
 
-                const parsedAmount = parseOptionalAmount(ingredient.amountInput);
-                if (parsedAmount === null) {
-                    throw new Error(
-                        `Controleer ingredient ${index + 1}: hoeveelheid moet leeg zijn of groter dan 0.`
-                    );
+                const quantityText = ingredient.quantityText.trim();
+
+                const normalizedIngredient: Ingredient = {
+                    name,
+                };
+                if (quantityText) {
+                    normalizedIngredient.quantityText = quantityText;
                 }
 
-                return {
-                    name,
-                    unit: ingredient.unit.trim(),
-                    amount: parsedAmount,
-                };
+                return normalizedIngredient;
             });
 
             const normalizedSteps = steps.map((step) => step.text.trim()).filter(Boolean);
@@ -390,18 +370,17 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                 <div className="mb-2 space-y-2">
                     {ingredients.map((ingredient) => (
                         <div key={ingredient.id} className="rounded bg-gray-50 p-2 text-sm">
-                            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)_auto] gap-2">
+                            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] gap-2">
                                 <input
                                     type="text"
-                                    inputMode="decimal"
-                                    placeholder="Aantal"
-                                    value={ingredient.amountInput}
+                                    placeholder="Hoeveelheid + eenheid (optioneel)"
+                                    value={ingredient.quantityText}
                                     onChange={(event) => {
                                         clearError();
                                         setIngredients((prev) =>
                                             prev.map((row) =>
                                                 row.id === ingredient.id
-                                                    ? { ...row, amountInput: event.target.value }
+                                                    ? { ...row, quantityText: event.target.value }
                                                     : row
                                             )
                                         );
@@ -409,18 +388,7 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                                     className="w-full min-w-0 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
                                 />
                                 <input
-                                    value={ingredient.unit}
-                                    onChange={(event) => {
-                                        clearError();
-                                        setIngredients((prev) =>
-                                            prev.map((row) =>
-                                                row.id === ingredient.id ? { ...row, unit: event.target.value } : row
-                                            )
-                                        );
-                                    }}
-                                    className="w-full min-w-0 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
-                                />
-                                <input
+                                    placeholder="Ingredient"
                                     value={ingredient.name}
                                     onChange={(event) => {
                                         clearError();
@@ -447,24 +415,14 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                     ))}
                 </div>
                 <div className="space-y-2">
-                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] gap-2">
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-2">
                         <input
-                            placeholder="Aantal"
+                            placeholder="Hoeveelheid + eenheid (optioneel)"
                             type="text"
-                            inputMode="decimal"
-                            value={newIngredient.amount}
+                            value={newIngredient.quantityText}
                             onChange={(event) => {
                                 clearError();
-                                setNewIngredient((prev) => ({ ...prev, amount: event.target.value }));
-                            }}
-                            className="w-full min-w-0 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
-                        />
-                        <input
-                            placeholder="Eenheid"
-                            value={newIngredient.unit}
-                            onChange={(event) => {
-                                clearError();
-                                setNewIngredient((prev) => ({ ...prev, unit: event.target.value }));
+                                setNewIngredient((prev) => ({ ...prev, quantityText: event.target.value }));
                             }}
                             className="w-full min-w-0 rounded-md border border-gray-300 p-2 text-sm shadow-sm"
                         />

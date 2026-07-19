@@ -3,15 +3,39 @@
 import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { endOfWeek, isWithinInterval, startOfWeek } from "date-fns";
-import { ShoppingItem } from "@/types";
+import { Ingredient } from "@/types";
 import { useStore } from "@/context/StoreContext";
-import { toHumanQuantity } from "@/lib/utils/quantity";
+import {
+    composeQuantityTextFromLegacy,
+    parseQuantityText,
+    toHumanQuantity,
+} from "@/lib/utils/quantity";
 
-function resolveIngredientAmount(amount: number): number {
-    if (Number.isFinite(amount) && amount > 0) {
-        return amount;
+interface ShoppingListItem {
+    name: string;
+    amount?: number;
+    unit?: string;
+    quantityText?: string;
+    isNumeric: boolean;
+}
+
+function getIngredientQuantityText(ingredient: Ingredient): string {
+    if (typeof ingredient.quantityText === "string" && ingredient.quantityText.trim()) {
+        return ingredient.quantityText.trim();
     }
-    return 1;
+
+    const legacy = ingredient as Ingredient & { amount?: number; unit?: string };
+    return composeQuantityTextFromLegacy(
+        typeof legacy.amount === "number" ? legacy.amount : 0,
+        typeof legacy.unit === "string" ? legacy.unit : ""
+    );
+}
+
+function toBringQuantityText(item: ShoppingListItem): string {
+    if (item.isNumeric && typeof item.amount === "number") {
+        return toHumanQuantity(item.amount, item.unit ?? "").displayWithUnit.trim();
+    }
+    return (item.quantityText ?? "").trim();
 }
 
 function formatDate(value: number) {
@@ -46,7 +70,7 @@ function ExportContent() {
     const endDate = useMemo(() => endOfWeek(startDate, { weekStartsOn: 1 }), [startDate]);
 
     const shoppingList = useMemo(() => {
-        const items: Record<string, ShoppingItem> = {};
+        const items: Record<string, ShoppingListItem> = {};
         mealPlan.forEach((entry) => {
             const entryDate = new Date(entry.date);
             if (!isWithinInterval(entryDate, { start: startDate, end: endDate })) {
@@ -60,18 +84,32 @@ function ExportContent() {
 
             const scaling = entry.servings / recipe.baseServings;
             recipe.ingredients.forEach((ingredient) => {
-                const key = `${ingredient.name.toLowerCase().trim()}-${ingredient.unit
-                    .toLowerCase()
-                    .trim()}`;
-                const resolvedAmount = resolveIngredientAmount(ingredient.amount);
-                if (items[key]) {
-                    items[key].amount += resolvedAmount * scaling;
-                } else {
+                const quantityText = getIngredientQuantityText(ingredient);
+                const parsed = parseQuantityText(quantityText);
+                if (parsed.isParseable && typeof parsed.amount === "number") {
+                    const normalizedUnit = (parsed.unit ?? "").trim().toLowerCase();
+                    const key = `${ingredient.name.toLowerCase().trim()}::numeric::${normalizedUnit}`;
+                    const existing = items[key];
+                    if (existing && typeof existing.amount === "number") {
+                        existing.amount += parsed.amount * scaling;
+                    } else {
+                        items[key] = {
+                            name: ingredient.name,
+                            amount: parsed.amount * scaling,
+                            unit: parsed.unit ?? "",
+                            isNumeric: true,
+                        };
+                    }
+                    return;
+                }
+
+                const normalizedText = quantityText.toLowerCase();
+                const key = `${ingredient.name.toLowerCase().trim()}::text::${normalizedText}`;
+                if (!items[key]) {
                     items[key] = {
                         name: ingredient.name,
-                        amount: resolvedAmount * scaling,
-                        unit: ingredient.unit,
-                        checked: false,
+                        quantityText,
+                        isNumeric: false,
                     };
                 }
             });
@@ -79,21 +117,15 @@ function ExportContent() {
         return Object.values(items);
     }, [endDate, mealPlan, recipes, startDate]);
 
-    const roundedShoppingList = useMemo(
-        () =>
-            shoppingList.map((item) => ({
-                ...item,
-                humanQuantity: toHumanQuantity(item.amount, item.unit),
-            })),
-        [shoppingList]
-    );
-
     const exportText = useMemo(
         () =>
-            roundedShoppingList
-                .map((item) => `${item.humanQuantity.displayWithUnit} ${item.name}`.trim())
+            shoppingList
+                .map((item) => {
+                    const quantityText = toBringQuantityText(item);
+                    return quantityText ? `${quantityText} ${item.name}`.trim() : item.name;
+                })
                 .join("\n"),
-        [roundedShoppingList]
+        [shoppingList]
     );
 
     const handleCopy = async (text: string, successMessage: string) => {
@@ -126,11 +158,12 @@ function ExportContent() {
 
             const result = await createBringShareSnapshot({
                 title: `Boodschappen ${startDate.toLocaleDateString("nl-NL")}`,
-                items: roundedShoppingList.map((item) => ({
-                    name: item.name,
-                    amount: item.humanQuantity.roundedAmount,
-                    unit: item.unit,
-                })),
+                items: shoppingList.map((item) => {
+                    const quantityText = toBringQuantityText(item);
+                    return quantityText
+                        ? { name: item.name, quantityText }
+                        : { name: item.name };
+                }),
                 servings: 1,
                 sourceWeekStart: startDate.toISOString(),
             });
@@ -249,9 +282,12 @@ function ExportContent() {
                 <div className="mb-4 rounded-lg bg-gray-100 p-4 text-left">
                     <h2 className="mb-2 font-bold">Jouw boodschappenlijst</h2>
                     <ul className="list-inside list-disc text-sm">
-                        {roundedShoppingList.map((item, index) => (
+                        {shoppingList.map((item, index) => (
                             <li key={`${item.name}-${index}`}>
-                                {item.humanQuantity.displayWithUnit} {item.name}
+                                {(() => {
+                                    const quantityText = toBringQuantityText(item);
+                                    return quantityText ? `${quantityText} ${item.name}` : item.name;
+                                })()}
                             </li>
                         ))}
                     </ul>

@@ -1,6 +1,7 @@
 import { MealPlanEntry, Recipe } from "@/types";
 import { createId } from "@/lib/utils/ids";
 import { toMillis } from "@/lib/utils/time";
+import { composeQuantityTextFromLegacy } from "@/lib/utils/quantity";
 
 interface UnknownRecord {
     [key: string]: unknown;
@@ -8,6 +9,30 @@ interface UnknownRecord {
 
 function asRecord(value: unknown): UnknownRecord {
     return typeof value === "object" && value !== null ? (value as UnknownRecord) : {};
+}
+
+function normalizeIngredient(
+    value: unknown
+): Recipe["ingredients"][number] | null {
+    const data = asRecord(value);
+    const name = typeof data.name === "string" ? data.name : "";
+    if (!name.trim()) {
+        return null;
+    }
+
+    const quantityText =
+        typeof data.quantityText === "string"
+            ? data.quantityText.trim()
+            : composeQuantityTextFromLegacy(
+                typeof data.amount === "number" ? data.amount : 0,
+                typeof data.unit === "string" ? data.unit : ""
+            );
+
+    if (quantityText) {
+        return { name, quantityText };
+    }
+
+    return { name };
 }
 
 export function normalizeRecipe(
@@ -26,7 +51,9 @@ export function normalizeRecipe(
         description: typeof data.description === "string" ? data.description : "",
         image: typeof data.image === "string" ? data.image : undefined,
         ingredients: Array.isArray(data.ingredients)
-            ? (data.ingredients as Recipe["ingredients"]).filter(Boolean)
+            ? data.ingredients
+                .map((ingredient) => normalizeIngredient(ingredient))
+                .filter((ingredient): ingredient is Recipe["ingredients"][number] => Boolean(ingredient))
             : [],
         baseServings:
             typeof data.baseServings === "number" && data.baseServings > 0

@@ -1,7 +1,6 @@
 export interface Ingredient {
     name: string;
-    amount: number;
-    unit: string;
+    quantityText?: string;
 }
 
 export type UserRole = "owner" | "member";
@@ -50,14 +49,17 @@ export interface MealPlanEntry {
 }
 
 export interface ShoppingItem extends Ingredient {
+    amount?: number;
+    unit?: string;
     checked: boolean;
     recipeId?: string; // Optional reference to source recipe
 }
 
 export interface BringShareItem {
     name: string;
-    amount: number;
-    unit: string;
+    quantityText?: string;
+    amount?: number;
+    unit?: string;
 }
 
 export interface BringShareSnapshot {

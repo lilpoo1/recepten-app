@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useStore } from "@/context/StoreContext";
-import { toHumanQuantity } from "@/lib/utils/quantity";
+import { composeQuantityTextFromLegacy, formatScaledQuantityText } from "@/lib/utils/quantity";
 
 export default function RecipeDetailClient({ id }: { id: string }) {
     const { getRecipeById, deleteRecipe } = useStore();
@@ -33,6 +33,21 @@ export default function RecipeDetailClient({ id }: { id: string }) {
     };
 
     const scalingFactor = servings / recipe.baseServings;
+
+    const getIngredientQuantity = (ingredient: (typeof recipe.ingredients)[number]) => {
+        if (typeof ingredient.quantityText === "string" && ingredient.quantityText.trim()) {
+            return formatScaledQuantityText(ingredient.quantityText, scalingFactor);
+        }
+
+        const legacy = ingredient as (typeof ingredient) & { amount?: number; unit?: string };
+        return formatScaledQuantityText(
+            composeQuantityTextFromLegacy(
+                typeof legacy.amount === "number" ? legacy.amount : 0,
+                typeof legacy.unit === "string" ? legacy.unit : ""
+            ),
+            scalingFactor
+        );
+    };
 
     return (
         <div className="min-h-screen bg-white pb-24">
@@ -129,10 +144,7 @@ export default function RecipeDetailClient({ id }: { id: string }) {
                             className="flex items-start justify-between gap-2 border-b border-gray-50 pb-2 text-sm"
                         >
                             <span className="shrink-0 font-medium text-gray-900">
-                                {ingredient.amount > 0
-                                    ? toHumanQuantity(ingredient.amount * scalingFactor, ingredient.unit).displayWithApprox
-                                    : ""}{" "}
-                                {ingredient.unit}
+                                {getIngredientQuantity(ingredient)}
                             </span>
                             <span className="min-w-0 break-words text-right text-gray-600">
                                 {ingredient.name}

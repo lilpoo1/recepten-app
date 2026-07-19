@@ -11,6 +11,14 @@ export interface HumanQuantity {
     displayWithUnit: string;
 }
 
+export interface ParsedQuantityText {
+    rawText: string;
+    isParseable: boolean;
+    amount?: number;
+    unit?: string;
+    rawRemainder?: string;
+}
+
 const WEIGHT_UNITS = new Set(["g", "gram", "gr", "kg", "kilo"]);
 const VOLUME_UNITS = new Set(["ml", "milliliter", "l", "liter"]);
 const COUNT_UNITS = new Set([
@@ -126,4 +134,79 @@ export function toHumanQuantity(amount: number, unit: string, locale = "nl-NL"):
         displayWithApprox,
         displayWithUnit,
     };
+}
+
+function toCompactNumber(value: number): string {
+    const rounded = Number.parseFloat(value.toFixed(6));
+    if (!Number.isFinite(rounded) || rounded <= 0) {
+        return "";
+    }
+    return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+export function composeQuantityTextFromLegacy(amount: number, unit: string): string {
+    const trimmedUnit = unit.trim();
+    const amountText = toCompactNumber(amount);
+
+    if (amountText) {
+        return trimmedUnit ? `${amountText} ${trimmedUnit}` : amountText;
+    }
+
+    return trimmedUnit;
+}
+
+export function parseQuantityText(quantityText?: string): ParsedQuantityText {
+    const rawText = (quantityText ?? "").trim();
+    if (!rawText) {
+        return {
+            rawText: "",
+            isParseable: false,
+        };
+    }
+
+    const match = rawText.match(/^([0-9]+(?:[.,][0-9]+)?)\s*(.*)$/);
+    if (!match) {
+        return {
+            rawText,
+            isParseable: false,
+            rawRemainder: rawText,
+        };
+    }
+
+    const amount = Number.parseFloat(match[1].replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) {
+        return {
+            rawText,
+            isParseable: false,
+            rawRemainder: rawText,
+        };
+    }
+
+    const unit = match[2].trim();
+
+    return {
+        rawText,
+        isParseable: true,
+        amount,
+        unit,
+        rawRemainder: unit || undefined,
+    };
+}
+
+export function formatScaledQuantityText(
+    quantityText: string | undefined,
+    factor: number,
+    locale = "nl-NL"
+): string {
+    const parsed = parseQuantityText(quantityText);
+    if (!parsed.rawText) {
+        return "";
+    }
+
+    if (!parsed.isParseable || parsed.amount === undefined) {
+        return parsed.rawText;
+    }
+
+    const safeFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
+    return toHumanQuantity(parsed.amount * safeFactor, parsed.unit ?? "", locale).displayWithUnit.trim();
 }

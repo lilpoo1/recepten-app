@@ -1,137 +1,54 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
-import { BringShareItem, BringShareSnapshot } from "@/types";
+import { BringShareItem } from "@/types";
 import BringImportWidget from "@/components/BringImportWidget";
-import { toHumanQuantity } from "@/lib/utils/quantity";
+import {
+    fetchBringShareSnapshot,
+    toBringImportItem,
+} from "@/lib/bring/share-snapshot";
 
 export const dynamic = "force-dynamic";
 
-interface FirestoreField {
-    stringValue?: string;
-    integerValue?: string;
-    doubleValue?: number;
-    timestampValue?: string;
-    arrayValue?: {
-        values?: Array<{
-            mapValue?: {
-                fields?: Record<string, FirestoreField>;
-            };
-        }>;
-    };
-}
-
-interface FirestoreDocumentResponse {
-    fields?: Record<string, FirestoreField>;
-}
-
-function getString(fields: Record<string, FirestoreField>, key: string): string {
-    return fields[key]?.stringValue ?? "";
-}
-
-function getNumber(fields: Record<string, FirestoreField>, key: string): number {
-    const field = fields[key];
-    if (!field) {
-        return 0;
-    }
-    if (typeof field.doubleValue === "number") {
-        return field.doubleValue;
-    }
-    if (typeof field.integerValue === "string") {
-        const parsed = Number(field.integerValue);
-        return Number.isFinite(parsed) ? parsed : 0;
-    }
-    return 0;
-}
-
-function getTimestamp(fields: Record<string, FirestoreField>, key: string): number {
-    const value = fields[key]?.timestampValue;
-    if (!value) {
-        return 0;
-    }
-    const parsed = Date.parse(value);
-    return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function getItems(fields: Record<string, FirestoreField>, key: string): BringShareItem[] {
-    const values = fields[key]?.arrayValue?.values ?? [];
-    return values
-        .map((item) => {
-            const mapFields = item.mapValue?.fields ?? {};
-            return {
-                name: mapFields.name?.stringValue ?? "",
-                amount:
-                    typeof mapFields.amount?.doubleValue === "number"
-                        ? mapFields.amount.doubleValue
-                        : Number(mapFields.amount?.integerValue ?? "0"),
-                unit: mapFields.unit?.stringValue ?? "",
-            };
-        })
-        .filter((item) => item.name.length > 0);
-}
-
 function formatIngredient(item: BringShareItem): string {
-    const quantity = toHumanQuantity(item.amount, item.unit);
-    return `${quantity.displayWithUnit} ${item.name}`.trim();
-}
-
-async function fetchShareSnapshot(token: string): Promise<BringShareSnapshot | null> {
-    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-    if (!projectId || !apiKey) {
-        return null;
-    }
-
-    const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/bringShares/${encodeURIComponent(
-        token
-    )}?key=${apiKey}`;
-    const response = await fetch(endpoint, { cache: "no-store" });
-    if (response.status === 404) {
-        return null;
-    }
-    if (!response.ok) {
-        throw new Error("Kon Bring-share snapshot niet laden.");
-    }
-
-    const payload = (await response.json()) as FirestoreDocumentResponse;
-    const fields = payload.fields ?? {};
-    const expiresAt = getTimestamp(fields, "expiresAt");
-    if (!expiresAt || expiresAt <= Date.now()) {
-        return null;
-    }
-
-    return {
-        token: getString(fields, "token") || token,
-        householdId: getString(fields, "householdId"),
-        createdBy: getString(fields, "createdBy"),
-        createdAt: getTimestamp(fields, "createdAt"),
-        expiresAt,
-        title: getString(fields, "title") || "Bring snapshot",
-        items: getItems(fields, "items"),
-        servings: getNumber(fields, "servings") || 1,
-        sourceWeekStart: getString(fields, "sourceWeekStart"),
-    };
+    const quantityText = (item.quantityText ?? "").trim();
+    return quantityText ? `${item.name}, ${quantityText}` : item.name;
 }
 
 export default async function BringSharePage({
     params,
+    searchParams,
 }: {
     params: Promise<{ token: string }>;
+    searchParams?: Promise<{ debug?: string | string[] }>;
 }) {
     const { token } = await params;
+    const resolvedSearchParams = searchParams ? await searchParams : undefined;
+    const debugValue = resolvedSearchParams?.debug;
+    const debugEnabled = Array.isArray(debugValue)
+        ? debugValue.includes("1")
+        : debugValue === "1";
     const requestHeaders = await headers();
     const hostHeader = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
     const protocolHeader = requestHeaders.get("x-forwarded-proto") ?? "https";
     const host = hostHeader?.split(",")[0]?.trim();
     const protocol = protocolHeader.split(",")[0]?.trim() || "https";
     const shareUrl = host ? `${protocol}://${host}/bring/share/${encodeURIComponent(token)}` : "";
+    const jsonImportUrl = host
+        ? `${protocol}://${host}/bring/share/${encodeURIComponent(token)}/import`
+        : "";
     const deeplinkFallbackUrl = shareUrl
         ? `https://api.getbring.com/rest/bringrecipes/deeplink?url=${encodeURIComponent(
             shareUrl
         )}&source=web&baseQuantity=1&requestedQuantity=1`
         : "";
+    const jsonDeeplinkUrl = jsonImportUrl
+        ? `https://api.getbring.com/rest/bringrecipes/deeplink?url=${encodeURIComponent(
+            jsonImportUrl
+        )}&source=web&baseQuantity=1&requestedQuantity=1`
+        : "";
 
-    const snapshot = await fetchShareSnapshot(token);
+    const snapshot = await fetchBringShareSnapshot(token);
     if (!snapshot) {
         return (
             <div className="mx-auto min-h-screen max-w-md bg-white p-6">
@@ -195,6 +112,14 @@ export default async function BringSharePage({
                     Open Bring deeplink (fallback)
                 </a>
             ) : null}
+            {jsonDeeplinkUrl ? (
+                <a
+                    href={jsonDeeplinkUrl}
+                    className="mt-3 block w-full rounded-lg border border-blue-200 bg-white px-6 py-3 text-center text-sm font-semibold text-blue-700"
+                >
+                    Open Bring JSON import (test)
+                </a>
+            ) : null}
 
             <div className="mt-6 rounded-lg bg-gray-50 p-4 text-left" itemScope itemType="http://schema.org/Recipe">
                 <h2 className="font-semibold text-gray-900" itemProp="name">
@@ -214,11 +139,19 @@ export default async function BringSharePage({
                             <li key={`${item.name}-${index}`}>
                                 <span itemProp="ingredients">{ingredientLine}</span>
                                 <meta itemProp="recipeIngredient" content={ingredientLine} />
-                            </li>
-                        );
-                    })}
+                    </li>
+                );
+            })}
                 </ul>
             </div>
+            {debugEnabled ? (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-700">
+                    <p className="mb-2 font-semibold">Debug JSON mapping preview</p>
+                    <pre className="overflow-x-auto whitespace-pre-wrap">
+                        {JSON.stringify(snapshot.items.slice(0, 10).map((item) => toBringImportItem(item)), null, 2)}
+                    </pre>
+                </div>
+            ) : null}
 
             <p className="mt-6 text-xs text-gray-500">
                 Als Bring niet automatisch importeert, kopieer deze items handmatig in Bring.

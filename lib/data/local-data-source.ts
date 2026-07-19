@@ -9,34 +9,24 @@ import {
 } from "@/types";
 import { createId } from "@/lib/utils/ids";
 import { normalizeMealPlanEntry, normalizeRecipe } from "@/lib/data/normalize";
+import {
+    readLocalMealPlan,
+    readLocalRecipes,
+    writeLocalValue,
+} from "@/lib/storage/browser-storage";
 
 const RECIPES_KEY = "recipes";
 const MEAL_PLAN_KEY = "mealPlan";
 
-function readArray(key: string): unknown[] {
-    if (typeof window === "undefined") {
-        return [];
+async function readArray(key: string, householdId: string, userId: string): Promise<unknown[]> {
+    if (key === RECIPES_KEY) {
+        return readLocalRecipes(householdId, userId);
     }
-
-    const raw = window.localStorage.getItem(key);
-    if (!raw) {
-        return [];
-    }
-
-    try {
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
-    }
+    return readLocalMealPlan(householdId, userId);
 }
 
-function writeArray(key: string, data: unknown[]) {
-    if (typeof window === "undefined") {
-        return;
-    }
-
-    window.localStorage.setItem(key, JSON.stringify(data));
+async function writeArray(key: string, data: unknown[]) {
+    await writeLocalValue(key, data);
 }
 
 export class LocalDataSource implements DataSource {
@@ -44,10 +34,10 @@ export class LocalDataSource implements DataSource {
 
     async loadHouseholdData(householdId: string): Promise<HouseholdSnapshot> {
         const fallbackUser = "local-user";
-        const recipes = readArray(RECIPES_KEY).map((item) =>
+        const recipes = (await readArray(RECIPES_KEY, householdId, fallbackUser)).map((item) =>
             normalizeRecipe(item, householdId, fallbackUser)
         );
-        const mealPlan = readArray(MEAL_PLAN_KEY).map((item) =>
+        const mealPlan = (await readArray(MEAL_PLAN_KEY, householdId, fallbackUser)).map((item) =>
             normalizeMealPlanEntry(item, householdId, fallbackUser)
         );
 
@@ -65,7 +55,7 @@ export class LocalDataSource implements DataSource {
 
     async addRecipe(householdId: string, userId: string, draft: RecipeDraft): Promise<string> {
         const now = Date.now();
-        const existing = readArray(RECIPES_KEY).map((item) =>
+        const existing = (await readArray(RECIPES_KEY, householdId, userId)).map((item) =>
             normalizeRecipe(item, householdId, userId)
         );
         const id = createId();
@@ -79,15 +69,15 @@ export class LocalDataSource implements DataSource {
             updatedAt: now,
             version: 1,
         };
-        writeArray(RECIPES_KEY, [...existing, recipe]);
+        await writeArray(RECIPES_KEY, [...existing, recipe]);
         return id;
     }
 
     async updateRecipe(householdId: string, userId: string, recipe: Recipe): Promise<void> {
-        const existing = readArray(RECIPES_KEY).map((item) =>
+        const existing = (await readArray(RECIPES_KEY, householdId, userId)).map((item) =>
             normalizeRecipe(item, householdId, userId)
         );
-        writeArray(
+        await writeArray(
             RECIPES_KEY,
             existing.map((item) =>
                 item.id === recipe.id
@@ -102,30 +92,30 @@ export class LocalDataSource implements DataSource {
     }
 
     async deleteRecipe(householdId: string, recipeId: string): Promise<void> {
-        const recipes = readArray(RECIPES_KEY).map((item) =>
+        const recipes = (await readArray(RECIPES_KEY, householdId, "local-user")).map((item) =>
             normalizeRecipe(item, householdId, "local-user")
         );
-        const mealPlan = readArray(MEAL_PLAN_KEY).map((item) =>
+        const mealPlan = (await readArray(MEAL_PLAN_KEY, householdId, "local-user")).map((item) =>
             normalizeMealPlanEntry(item, householdId, "local-user")
         );
 
-        writeArray(
+        await writeArray(
             RECIPES_KEY,
             recipes.filter((item) => item.id !== recipeId)
         );
-        writeArray(
+        await writeArray(
             MEAL_PLAN_KEY,
             mealPlan.filter((entry) => entry.recipeId !== recipeId)
         );
     }
 
     async markAsCooked(householdId: string, recipeId: string): Promise<void> {
-        const recipes = readArray(RECIPES_KEY).map((item) =>
+        const recipes = (await readArray(RECIPES_KEY, householdId, "local-user")).map((item) =>
             normalizeRecipe(item, householdId, "local-user")
         );
         const now = Date.now();
 
-        writeArray(
+        await writeArray(
             RECIPES_KEY,
             recipes.map((recipe) =>
                 recipe.id === recipeId
@@ -145,7 +135,7 @@ export class LocalDataSource implements DataSource {
         userId: string,
         draft: MealPlanDraft
     ): Promise<void> {
-        const entries = readArray(MEAL_PLAN_KEY).map((item) =>
+        const entries = (await readArray(MEAL_PLAN_KEY, householdId, userId)).map((item) =>
             normalizeMealPlanEntry(item, householdId, userId)
         );
         const now = Date.now();
@@ -167,7 +157,7 @@ export class LocalDataSource implements DataSource {
             version: 1,
         };
 
-        writeArray(MEAL_PLAN_KEY, [...withoutSlot, nextEntry]);
+        await writeArray(MEAL_PLAN_KEY, [...withoutSlot, nextEntry]);
     }
 
     async removeMealPlanEntry(
@@ -176,10 +166,10 @@ export class LocalDataSource implements DataSource {
         recipeId: string,
         mealType: MealPlanEntry["mealType"]
     ): Promise<void> {
-        const entries = readArray(MEAL_PLAN_KEY).map((item) =>
+        const entries = (await readArray(MEAL_PLAN_KEY, householdId, "local-user")).map((item) =>
             normalizeMealPlanEntry(item, householdId, "local-user")
         );
-        writeArray(
+        await writeArray(
             MEAL_PLAN_KEY,
             entries.filter(
                 (entry) =>
