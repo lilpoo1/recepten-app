@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import { getGoogleAccessToken } from "./lib/google-auth.mjs";
+import {
+    isRecipeDocumentPath,
+    partitionMismatchPaths,
+} from "./lib/firestore-paths.mjs";
 
 const args = Object.fromEntries(
     process.argv.slice(2).map((entry) => {
@@ -12,6 +16,10 @@ const projectId = args.project ?? "recepten-app-87beb";
 const sourceDatabase = args.source ?? "(default)";
 const restoredDatabase = args.restored;
 const sourceReadTime = args["source-read-time"];
+const ignoredPaths = (args["ignore-paths"] ?? "")
+    .split(",")
+    .map((path) => path.trim())
+    .filter(Boolean);
 if (!restoredDatabase || restoredDatabase === "(default)") {
     throw new Error("Gebruik --restored=<tijdelijke-database>; productie is niet toegestaan.");
 }
@@ -106,14 +114,16 @@ const [source, restored] = await Promise.all([
     allDocuments(restoredDatabase),
 ]);
 const paths = [...new Set([...source.keys(), ...restored.keys()])].sort();
-const mismatches = paths.filter(
+const allMismatches = paths.filter(
     (path) =>
         !source.has(path) ||
         !restored.has(path) ||
         source.get(path).hash !== restored.get(path).hash
 );
-const sourceRecipes = [...source.keys()].filter((path) => path.includes("/recipes/"));
-const restoredRecipes = [...restored.keys()].filter((path) => path.includes("/recipes/"));
+const { relevant: mismatches, ignored: ignoredMismatches } =
+    partitionMismatchPaths(allMismatches, ignoredPaths);
+const sourceRecipes = [...source.keys()].filter(isRecipeDocumentPath);
+const restoredRecipes = [...restored.keys()].filter(isRecipeDocumentPath);
 const result = {
     sourceReadTime: sourceReadTime ?? "latest",
     sourceDocuments: source.size,
@@ -125,6 +135,8 @@ const result = {
         .length,
     mismatches: mismatches.length,
     mismatchPaths: mismatches.slice(0, 10),
+    ignoredMismatches: ignoredMismatches.length,
+    ignoredMismatchPaths: ignoredMismatches.slice(0, 10),
 };
 console.log(JSON.stringify(result, null, 2));
 if (mismatches.length > 0 || source.size !== restored.size) {

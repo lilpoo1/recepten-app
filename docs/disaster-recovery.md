@@ -60,6 +60,11 @@ toegang en een onomkeerbaar vergrendelde retentie van 98 dagen.
 3. Importeer de export in die tijdelijke database.
 4. Voer `scripts/verify-firestore-restore.mjs` uit en eis nul verschillen voor
    documenten en afbeeldingshashes.
+   Bij een dagelijkse export mag uitsluitend het tijdens de export bijgewerkte,
+   afgeleide document `system/backupStatus` expliciet worden uitgezonderd met
+   `--ignore-paths=system/backupStatus`; de verifier blijft dit verschil apart
+   rapporteren. Recepten, leden, planning en afbeeldingen mogen nooit worden
+   uitgezonderd.
 5. Zet uitsluitend gecontroleerde documenten terug. Bewaar de oorspronkelijke
    omgeving read-only totdat de nacontrole klaar is.
 
