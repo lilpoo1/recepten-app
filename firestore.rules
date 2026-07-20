@@ -5,6 +5,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isBackupAutomation() {
+      return signedIn() && request.auth.token.backupAutomation == true;
+    }
+
     function householdIdForUser(uid) {
       return get(/databases/$(database)/documents/userMemberships/$(uid)).data.householdId;
     }
@@ -25,13 +29,190 @@ service cloud.firestore {
         );
     }
 
+    function isHouseholdOwnerNow(householdId) {
+      return isHouseholdMemberNow(householdId)
+        && get(/databases/$(database)/documents/userMemberships/$(request.auth.uid)).data.role == 'owner'
+        && get(/databases/$(database)/documents/households/$(householdId)).data.ownerUid ==
+          request.auth.uid;
+    }
+
+    function householdPath(householdId) {
+      return /databases/$(database)/documents/households/$(householdId);
+    }
+
+    function memberPath(householdId, uid) {
+      return /databases/$(database)/documents/households/$(householdId)/members/$(uid);
+    }
+
+    function recipePath(householdId, recipeId) {
+      return /databases/$(database)/documents/households/$(householdId)/recipes/$(recipeId);
+    }
+
+    function membershipPath(uid) {
+      return /databases/$(database)/documents/userMemberships/$(uid);
+    }
+
+    function invitePath(code) {
+      return /databases/$(database)/documents/householdInvites/$(code);
+    }
+
+    function validMembershipCore(data) {
+      return data.keys().hasAll(['householdId', 'role', 'joinedAt'])
+        && data.householdId is string
+        && (data.role == 'owner' || data.role == 'member')
+        && data.joinedAt is timestamp;
+    }
+
+    function validActiveInvite(code, householdId) {
+      return code is string
+        && exists(invitePath(code))
+        && get(invitePath(code)).data.householdId == householdId
+        && get(invitePath(code)).data.active == true
+        && (
+          !('expiresAt' in get(invitePath(code)).data)
+          || get(invitePath(code)).data.expiresAt > request.time
+        );
+    }
+
+    function validRecipeShape(data, householdId) {
+      return data.keys().hasAll([
+          'householdId',
+          'createdBy',
+          'title',
+          'ingredients',
+          'baseServings',
+          'steps',
+          'tags',
+          'cookingHistory',
+          'createdAt',
+          'updatedAt',
+          'version'
+        ])
+        && data.keys().hasOnly([
+          'householdId',
+          'createdBy',
+          'title',
+          'description',
+          'image',
+          'ingredients',
+          'baseServings',
+          'steps',
+          'prepTimeMinutes',
+          'difficulty',
+          'tags',
+          'notes',
+          'cookingHistory',
+          'createdAt',
+          'updatedAt',
+          'version',
+          'deletedAt',
+          'deletedBy',
+          'lastRevisionId'
+        ])
+        && data.householdId == householdId
+        && data.createdBy is string
+        && data.title is string
+        && data.title.size() > 0
+        && data.ingredients is list
+        && (data.baseServings is int || data.baseServings is float)
+        && data.baseServings > 0
+        && data.steps is list
+        && data.tags is list
+        && data.cookingHistory is list
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.version is int
+        && data.version > 0
+        && (!('description' in data) || data.description is string)
+        && (!('image' in data) || data.image is string)
+        && (!('prepTimeMinutes' in data)
+          || data.prepTimeMinutes is int
+          || data.prepTimeMinutes is float)
+        && (!('difficulty' in data) || data.difficulty is int)
+        && (!('notes' in data) || data.notes is string)
+        && (!('deletedAt' in data) || data.deletedAt is timestamp)
+        && (!('deletedBy' in data) || data.deletedBy is string)
+        && (!('lastRevisionId' in data) || data.lastRevisionId is string);
+    }
+
+    function revisionPath(householdId, recipeId, revisionId) {
+      return /databases/$(database)/documents/households/$(householdId)/recipes/$(recipeId)/recipeRevisions/$(revisionId);
+    }
+
+    function updateHasExactPreviousRevision(householdId, recipeId) {
+      let revisionId = request.resource.data.lastRevisionId;
+      let revision = getAfter(revisionPath(householdId, recipeId, revisionId)).data;
+      return revisionId is string
+        && existsAfter(revisionPath(householdId, recipeId, revisionId))
+        && revision.householdId == householdId
+        && revision.recipeId == recipeId
+        && revision.version == resource.data.version
+        && revision.createdBy == request.auth.uid
+        && revision.snapshot == resource.data
+        && revision.createdAt is timestamp
+        && revision.expiresAt is timestamp;
+    }
+
     match /userMemberships/{uid} {
-      allow read, write: if signedIn() && request.auth.uid == uid;
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && validMembershipCore(request.resource.data)
+        && (
+          (
+            request.resource.data.keys().hasOnly([
+              'householdId', 'role', 'joinedAt'
+            ])
+            && request.resource.data.role == 'owner'
+            && !exists(householdPath(request.resource.data.householdId))
+            && getAfter(householdPath(request.resource.data.householdId)).data.ownerUid == uid
+            && getAfter(memberPath(request.resource.data.householdId, uid)).data.role == 'owner'
+          )
+          ||
+          (
+            request.resource.data.keys().hasOnly([
+              'householdId', 'role', 'joinedAt', 'inviteCode'
+            ])
+            && request.resource.data.role == 'member'
+            && validActiveInvite(
+              request.resource.data.inviteCode,
+              request.resource.data.householdId
+            )
+            && getAfter(memberPath(request.resource.data.householdId, uid)).data.role == 'member'
+          )
+        );
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && resource.data.keys().hasAll(['inviteCode'])
+        && request.resource.data.keys().hasOnly([
+          'householdId', 'role', 'joinedAt'
+        ])
+        && request.resource.data.householdId == resource.data.householdId
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.joinedAt == resource.data.joinedAt;
+      allow delete: if false;
     }
 
     match /householdInvites/{code} {
-      allow read: if signedIn();
-      allow write: if signedIn();
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll([
+          'householdId', 'createdBy', 'active', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'householdId', 'createdBy', 'active', 'createdAt', 'expiresAt'
+        ])
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.active == true
+        && request.resource.data.createdAt is timestamp
+        && isHouseholdMemberNowOrPending(request.resource.data.householdId);
+      allow update: if isHouseholdOwnerNow(resource.data.householdId)
+        && request.resource.data.householdId == resource.data.householdId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.active is bool;
+      allow delete: if false;
     }
 
     match /bringShares/{token} {
@@ -45,28 +226,171 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /system/{docId} {
+      allow read: if signedIn();
+      allow create, update: if isBackupAutomation()
+        && docId == 'backupStatus'
+        && request.resource.data.keys().hasAll(['state', 'updatedAt'])
+        && request.resource.data.keys().hasOnly([
+          'state',
+          'updatedAt',
+          'latestExportAt',
+          'latestVerifiedAt',
+          'outputUriPrefix',
+          'message'
+        ])
+        && request.resource.data.state in ['healthy', 'running', 'stale', 'failed']
+        && request.resource.data.updatedAt is timestamp;
+      allow delete: if false;
+    }
+
+    // Automation can list only deletion queue metadata, never recipe content.
+    match /{parent=**}/recipeDeletionQueue/{recipeId} {
+      allow list: if isBackupAutomation();
+    }
+
     match /households/{householdId} {
       allow read: if isHouseholdMemberNow(householdId);
-      allow write: if isHouseholdMemberNowOrPending(householdId);
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && isHouseholdMemberNowOrPending(householdId);
+      allow update: if isHouseholdOwnerNow(householdId)
+        && request.resource.data.ownerUid == resource.data.ownerUid;
+      allow delete: if false;
 
       match /members/{uid} {
         allow read: if isHouseholdMemberNow(householdId);
-        allow write: if isHouseholdMemberNowOrPending(householdId);
+        allow create: if signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasAll(['role', 'joinedAt'])
+          && request.resource.data.keys().hasOnly(['role', 'joinedAt'])
+          && request.resource.data.joinedAt is timestamp
+          && getAfter(membershipPath(uid)).data.householdId == householdId
+          && getAfter(membershipPath(uid)).data.role == request.resource.data.role
+          && (
+            (
+              request.resource.data.role == 'owner'
+              && getAfter(householdPath(householdId)).data.ownerUid == uid
+            )
+            ||
+            (
+              request.resource.data.role == 'member'
+              && validActiveInvite(
+                getAfter(membershipPath(uid)).data.inviteCode,
+                householdId
+              )
+            )
+          );
+        allow update: if false;
+        allow delete: if false;
       }
 
       match /recipes/{recipeId} {
         allow read: if isHouseholdMemberNow(householdId);
-        allow write: if isHouseholdMemberNowOrPending(householdId);
+        allow create: if isHouseholdMemberNowOrPending(householdId)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.version == 1
+          && validRecipeShape(request.resource.data, householdId);
+        allow update: if isHouseholdMemberNowOrPending(householdId)
+          && validRecipeShape(request.resource.data, householdId)
+          && request.resource.data.householdId == resource.data.householdId
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.version == resource.data.version + 1
+          && request.resource.data.lastRevisionId != resource.data.get('lastRevisionId', '')
+          && updateHasExactPreviousRevision(householdId, recipeId);
+        allow delete: if isBackupAutomation()
+          && resource.data.deletedAt is timestamp
+          && resource.data.deletedAt <= request.time - duration.value(98, 'd');
+
+        match /recipeRevisions/{revisionId} {
+          allow read: if isHouseholdMemberNow(householdId);
+          allow create: if isHouseholdMemberNowOrPending(householdId)
+            && request.resource.data.keys().hasAll([
+              'householdId',
+              'recipeId',
+              'version',
+              'action',
+              'snapshot',
+              'createdBy',
+              'createdAt',
+              'expiresAt'
+            ])
+            && request.resource.data.keys().hasOnly([
+              'householdId',
+              'recipeId',
+              'version',
+              'action',
+              'snapshot',
+              'createdBy',
+              'createdAt',
+              'expiresAt'
+            ])
+            && request.resource.data.householdId == householdId
+            && request.resource.data.recipeId == recipeId
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.version ==
+              get(/databases/$(database)/documents/households/$(householdId)/recipes/$(recipeId)).data.version
+            && request.resource.data.snapshot ==
+              get(/databases/$(database)/documents/households/$(householdId)/recipes/$(recipeId)).data
+            && getAfter(/databases/$(database)/documents/households/$(householdId)/recipes/$(recipeId)).data.lastRevisionId == revisionId
+            && request.resource.data.action in ['update', 'delete', 'restore', 'mark_cooked']
+            && request.resource.data.createdAt is timestamp
+            && request.resource.data.expiresAt is timestamp
+            && request.resource.data.expiresAt > request.time;
+          allow update, delete: if false;
+        }
+      }
+
+      match /recipeDeletionQueue/{recipeId} {
+        allow read: if isHouseholdMemberNow(householdId);
+        allow create: if isHouseholdMemberNowOrPending(householdId)
+          && request.resource.data.keys().hasAll([
+            'householdId',
+            'recipeId',
+            'deletedAt',
+            'purgeAfter'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'householdId',
+            'recipeId',
+            'deletedAt',
+            'purgeAfter'
+          ])
+          && request.resource.data.householdId == householdId
+          && request.resource.data.recipeId == recipeId
+          && request.resource.data.deletedAt is timestamp
+          && request.resource.data.purgeAfter is timestamp
+          && request.resource.data.purgeAfter > request.time
+          && getAfter(recipePath(householdId, recipeId)).data.deletedAt ==
+            request.resource.data.deletedAt
+          && getAfter(recipePath(householdId, recipeId)).data.deletedBy ==
+            request.auth.uid
+          && request.resource.data.purgeAfter >=
+            request.resource.data.deletedAt + duration.value(97, 'd')
+          && request.resource.data.purgeAfter <=
+            request.resource.data.deletedAt + duration.value(99, 'd');
+        allow update: if false;
+        allow delete: if (
+            isHouseholdMemberNowOrPending(householdId)
+            && !('deletedAt' in getAfter(recipePath(householdId, recipeId)).data)
+          )
+          || (
+            isBackupAutomation()
+            && resource.data.purgeAfter is timestamp
+            && resource.data.purgeAfter <= request.time
+          );
       }
 
       match /mealPlan/{entryId} {
         allow read: if isHouseholdMemberNow(householdId);
-        allow write: if isHouseholdMemberNowOrPending(householdId);
+        allow create, update, delete: if isHouseholdMemberNowOrPending(householdId);
       }
 
       match /meta/{docId} {
         allow read: if isHouseholdMemberNow(householdId);
-        allow write: if isHouseholdMemberNowOrPending(householdId);
+        allow create, update: if isHouseholdMemberNowOrPending(householdId);
+        allow delete: if false;
       }
     }
   }

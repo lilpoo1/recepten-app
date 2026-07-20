@@ -31,9 +31,15 @@ Open `http://localhost:3000`.
 ## Kwaliteitschecks
 
 ```bash
+npm test
+npm run test:rules
 npm run lint
 npm run build
 ```
+
+Voor een productie-release gebruikt `npm run deploy:safe` bovendien de actuele
+back-upstatus als harde poort. De calamiteiten- en herstelprocedure staat in
+[`docs/disaster-recovery.md`](docs/disaster-recovery.md).
 
 ## Firebase modus
 

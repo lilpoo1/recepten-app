@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "deploy": "firebase deploy --only apphosting"
+    "test:rules": "npx --yes firebase-tools@14.24.2 emulators:exec --only firestore \"vitest run tests/firestore-rules.emulator.test.ts\" --project recepten-rules-test",
+    "verify:backup": "node scripts/verify-backup-freshness.mjs",
+    "deploy:safe": "npm test && npm run test:rules && npm run lint && npm run build && npm run verify:backup && npx --yes firebase-tools@14.24.2 deploy --only apphosting,firestore:rules --project recepten-app-87beb",
+    "deploy": "npx --yes firebase-tools@14.24.2 deploy --only apphosting --project recepten-app-87beb"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
@@ -19,6 +22,7 @@
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

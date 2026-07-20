@@ -1,5 +1,5 @@
 import { HouseholdDataSource } from "@/lib/data/types";
-import { Household, InviteCode, Membership, UserRole } from "@/types";
+import { BackupStatus, Household, InviteCode, Membership, UserRole } from "@/types";
 import { createInviteCode } from "@/lib/utils/ids";
 import { readLocalValue, writeLocalValue } from "@/lib/storage/browser-storage";
 
@@ -134,5 +134,9 @@ export class LocalHouseholdDataSource implements HouseholdDataSource {
             role,
             joinedAt: Date.now(),
         } satisfies Membership);
+    }
+
+    async getBackupStatus(): Promise<BackupStatus | null> {
+        return null;
     }
 }

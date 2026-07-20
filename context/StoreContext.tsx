@@ -1,9 +1,16 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import {
+    GoogleAuthProvider,
+    linkWithPopup,
+    onAuthStateChanged,
+    signInAnonymously,
+    signInWithPopup,
+} from "firebase/auth";
 import {
     AppUser,
+    BackupStatus,
     BringShareSnapshotInput,
     BringShareSnapshotResult,
     Household,
@@ -14,9 +21,14 @@ import {
     MigrationStatus,
     Recipe,
     RecipeDraft,
+    RecipeRevision,
     StorageMode,
 } from "@/types";
 import { auth, isFirebaseConfigured } from "@/lib/firebase/client";
+import {
+    assertGoogleSignInIsSafe,
+    assertLinkedAccountPreservedUid,
+} from "@/lib/firebase/auth-safety";
 import { DataSource, HouseholdDataSource } from "@/lib/data/types";
 import { LocalDataSource } from "@/lib/data/local-data-source";
 import {
@@ -43,11 +55,16 @@ interface StoreContextType {
     membership: Membership | null;
     inviteCode: InviteCode | null;
     recipes: Recipe[];
+    deletedRecipes: Recipe[];
     mealPlan: MealPlanEntry[];
     migration: MigrationStatus | null;
+    backupStatus: BackupStatus | null;
     addRecipe: (recipe: RecipeDraft) => Promise<void>;
     updateRecipe: (recipe: Recipe) => Promise<void>;
     deleteRecipe: (id: string) => Promise<void>;
+    restoreRecipe: (id: string) => Promise<void>;
+    loadRecipeRevisions: (id: string) => Promise<RecipeRevision[]>;
+    restoreRecipeVersion: (recipeId: string, revisionId: string) => Promise<void>;
     markAsCooked: (id: string) => Promise<void>;
     addToMealPlan: (entry: MealPlanDraft) => Promise<void>;
     removeFromMealPlan: (date: string, recipeId: string, mealType: MealPlanEntry["mealType"]) => Promise<void>;
@@ -58,6 +75,8 @@ interface StoreContextType {
     revokeInviteCode: () => Promise<void>;
     importLocalToHousehold: () => Promise<void>;
     dismissMigration: () => void;
+    linkGoogleAccount: () => Promise<void>;
+    signInWithGoogle: () => Promise<void>;
     createBringShareSnapshot: (
         input: BringShareSnapshotInput
     ) => Promise<BringShareSnapshotResult>;
@@ -91,14 +110,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     const [isReady, setIsReady] = useState(mode !== "firebase");
     const [user, setUser] = useState<AppUser | null>(
-        mode === "local" ? { uid: "local-user", isAnonymous: true } : null
+        mode === "local"
+            ? { uid: "local-user", isAnonymous: true, isPermanentAccount: false }
+            : null
     );
     const [household, setHousehold] = useState<Household | null>(null);
     const [membership, setMembership] = useState<Membership | null>(null);
     const [inviteCode, setInviteCode] = useState<InviteCode | null>(null);
     const [recipes, setRecipes] = useState<Recipe[]>([]);
+    const [deletedRecipes, setDeletedRecipes] = useState<Recipe[]>([]);
     const [mealPlan, setMealPlan] = useState<MealPlanEntry[]>([]);
     const [migration, setMigration] = useState<MigrationStatus | null>(null);
+    const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null);
 
     useEffect(() => {
         if (mode !== "firebase" || !auth) {
@@ -112,11 +135,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 return;
             }
 
+            setIsReady(false);
             setUser({
                 uid: firebaseUser.uid,
                 isAnonymous: firebaseUser.isAnonymous,
+                isPermanentAccount: !firebaseUser.isAnonymous,
             });
-            setIsReady(true);
         });
 
         return () => unsubscribe();
@@ -129,57 +153,106 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
         let active = true;
         const run = async () => {
-            const currentMembership = await householdSource.getMembership(user.uid);
-            if (!active) {
-                return;
-            }
-
-            if (!currentMembership) {
-                if (mode === "local") {
-                    const newHousehold = await householdSource.createHousehold(
-                        user.uid,
-                        "Lokaal huishouden"
-                    );
-                    const localMembership = await householdSource.getMembership(user.uid);
-                    if (!active) {
-                        return;
-                    }
-                    setHousehold(newHousehold);
-                    setMembership(localMembership);
-                    if (newHousehold.activeInviteCode) {
-                        const invite = await householdSource.getInviteCode(newHousehold.activeInviteCode);
-                        if (active) {
-                            setInviteCode(invite);
-                        }
-                    }
+            try {
+                const currentMembership = await householdSource.getMembership(user.uid);
+                if (!active) {
                     return;
                 }
 
-                setMembership(null);
-                setHousehold(null);
-                setInviteCode(null);
-                return;
-            }
+                if (!currentMembership) {
+                    if (mode === "local") {
+                        const newHousehold = await householdSource.createHousehold(
+                            user.uid,
+                            "Lokaal huishouden"
+                        );
+                        const localMembership = await householdSource.getMembership(user.uid);
+                        if (!active) {
+                            return;
+                        }
+                        setHousehold(newHousehold);
+                        setMembership(localMembership);
+                        if (newHousehold.activeInviteCode) {
+                            const invite = await householdSource.getInviteCode(
+                                newHousehold.activeInviteCode
+                            );
+                            if (active) {
+                                setInviteCode(invite);
+                            }
+                        }
+                        return;
+                    }
 
-            const currentHousehold = await householdSource.getHousehold(currentMembership.householdId);
-            if (!active) {
-                return;
-            }
-
-            setMembership(currentMembership);
-            setHousehold(currentHousehold);
-            if (currentHousehold?.activeInviteCode) {
-                const invite = await householdSource.getInviteCode(currentHousehold.activeInviteCode);
-                if (active) {
-                    setInviteCode(invite);
+                    setMembership(null);
+                    setHousehold(null);
+                    setInviteCode(null);
+                    return;
                 }
-            } else {
-                setInviteCode(null);
+
+                const currentHousehold = await householdSource.getHousehold(
+                    currentMembership.householdId
+                );
+                if (!active) {
+                    return;
+                }
+
+                setMembership(currentMembership);
+                setHousehold(currentHousehold);
+                if (currentHousehold?.activeInviteCode) {
+                    const invite = await householdSource.getInviteCode(
+                        currentHousehold.activeInviteCode
+                    );
+                    if (active) {
+                        setInviteCode(invite);
+                    }
+                } else {
+                    setInviteCode(null);
+                }
+            } catch (error) {
+                console.warn("Huishoudtoegang kon niet worden gecontroleerd.", error);
+                if (active) {
+                    setMembership(null);
+                    setHousehold(null);
+                    setInviteCode(null);
+                }
+            } finally {
+                if (active) {
+                    setIsReady(true);
+                }
             }
         };
 
         void run();
 
+        return () => {
+            active = false;
+        };
+    }, [householdSource, mode, user]);
+
+    useEffect(() => {
+        if (!household) {
+            return;
+        }
+        let active = true;
+        void dataSource.loadDeletedRecipes(household.id).then((items) => {
+            if (active) {
+                setDeletedRecipes(items);
+            }
+        });
+        return () => {
+            active = false;
+        };
+    }, [dataSource, household, recipes]);
+
+    useEffect(() => {
+        if (mode !== "firebase" || !user) {
+            return;
+        }
+        let active = true;
+        void householdSource.getBackupStatus().then((status) => {
+            if (active) {
+                setBackupStatus(status);
+            }
+        });
         return () => {
             active = false;
         };
@@ -294,12 +367,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     const deleteRecipe = async (id: string) => {
         const session = requireSession();
-        await dataSource.deleteRecipe(session.householdId, id);
+        await dataSource.deleteRecipe(session.householdId, session.userId, id);
+        setDeletedRecipes(await dataSource.loadDeletedRecipes(session.householdId));
+    };
+
+    const restoreRecipe = async (id: string) => {
+        const session = requireSession();
+        await dataSource.restoreRecipe(session.householdId, session.userId, id);
+        setDeletedRecipes(await dataSource.loadDeletedRecipes(session.householdId));
+    };
+
+    const loadRecipeRevisions = async (id: string) => {
+        const session = requireSession();
+        return dataSource.loadRecipeRevisions(session.householdId, id);
+    };
+
+    const restoreRecipeVersion = async (recipeId: string, revisionId: string) => {
+        const session = requireSession();
+        await dataSource.restoreRecipeVersion(
+            session.householdId,
+            session.userId,
+            recipeId,
+            revisionId
+        );
     };
 
     const markAsCooked = async (id: string) => {
         const session = requireSession();
-        await dataSource.markAsCooked(session.householdId, id);
+        await dataSource.markAsCooked(session.householdId, session.userId, id);
     };
 
     const addToMealPlan = async (entry: MealPlanDraft) => {
@@ -441,6 +536,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setMigration((prev) => (prev ? { ...prev, dismissedAt } : prev));
     };
 
+    const linkGoogleAccount = async () => {
+        if (!auth?.currentUser) {
+            throw new Error("Geen Firebase-gebruiker geladen.");
+        }
+        if (!auth.currentUser.isAnonymous) {
+            return;
+        }
+        const currentUid = auth.currentUser.uid;
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+        const credential = await linkWithPopup(auth.currentUser, provider);
+        assertLinkedAccountPreservedUid(currentUid, credential.user.uid);
+    };
+
+    const signInWithGoogle = async () => {
+        if (!auth) {
+            throw new Error("Firebase Authentication is niet beschikbaar.");
+        }
+        assertGoogleSignInIsSafe({
+            membershipChecked: isReady,
+            hasMembership: Boolean(membership),
+            currentUserIsAnonymous: Boolean(auth.currentUser?.isAnonymous),
+        });
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+        await signInWithPopup(auth, provider);
+    };
+
     const createBringShareSnapshot = async (
         input: BringShareSnapshotInput
     ): Promise<BringShareSnapshotResult> => {
@@ -465,11 +588,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 membership,
                 inviteCode,
                 recipes,
+                deletedRecipes,
                 mealPlan,
                 migration,
+                backupStatus,
                 addRecipe,
                 updateRecipe,
                 deleteRecipe,
+                restoreRecipe,
+                loadRecipeRevisions,
+                restoreRecipeVersion,
                 markAsCooked,
                 addToMealPlan,
                 removeFromMealPlan,
@@ -480,6 +608,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 revokeInviteCode,
                 importLocalToHousehold,
                 dismissMigration,
+                linkGoogleAccount,
+                signInWithGoogle,
                 createBringShareSnapshot,
             }}
         >

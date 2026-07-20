@@ -1,0 +1,5 @@
+{
+  "name": "recepten_backup_job_failures",
+  "description": "Cloud Run backup job errors and controlled alert tests",
+  "filter": "(resource.type=\"cloud_run_job\" AND resource.labels.job_name=~\"recepten-(daily-export|backup-verify|expired-cleanup)\" AND severity>=ERROR) OR logName=\"projects/recepten-app-87beb/logs/recepten-backup-alert-test\""
+}

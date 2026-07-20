@@ -75,6 +75,10 @@ export function normalizeRecipe(
         createdAt,
         updatedAt: toMillis(data.updatedAt, createdAt),
         version: typeof data.version === "number" ? data.version : 1,
+        deletedAt: toMillis(data.deletedAt, 0) || undefined,
+        deletedBy: typeof data.deletedBy === "string" ? data.deletedBy : undefined,
+        lastRevisionId:
+            typeof data.lastRevisionId === "string" ? data.lastRevisionId : undefined,
     };
 }
 

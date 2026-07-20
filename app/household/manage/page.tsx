@@ -5,7 +5,16 @@ import { useState } from "react";
 import { useStore } from "@/context/StoreContext";
 
 export default function ManageHouseholdPage() {
-    const { household, membership, inviteCode, refreshInviteCode, revokeInviteCode } = useStore();
+    const {
+        household,
+        membership,
+        inviteCode,
+        user,
+        backupStatus,
+        linkGoogleAccount,
+        refreshInviteCode,
+        revokeInviteCode,
+    } = useStore();
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +39,18 @@ export default function ManageHouseholdPage() {
             await revokeInviteCode();
         } catch (err) {
             setError(err instanceof Error ? err.message : "Code intrekken mislukt.");
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const handleLinkGoogle = async () => {
+        setBusy(true);
+        setError(null);
+        try {
+            await linkGoogleAccount();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Google-account koppelen mislukt.");
         } finally {
             setBusy(false);
         }
@@ -61,6 +82,49 @@ export default function ManageHouseholdPage() {
             <p className="mt-1 text-sm text-gray-600">
                 Rol: <strong>{membership?.role === "owner" ? "Eigenaar" : "Lid"}</strong>
             </p>
+
+            <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                <p className="text-sm font-semibold text-gray-800">Accountbeveiliging</p>
+                <p className="mt-2 text-sm text-gray-600">
+                    {user?.isPermanentAccount
+                        ? "Google-account gekoppeld. Er worden geen naam, profielfoto of e-mailadres in de receptendatabase opgeslagen."
+                        : "Nog alleen aan deze browser gekoppeld. Koppel Google om toegang op een nieuw toestel te kunnen herstellen."}
+                </p>
+                {!user?.isPermanentAccount ? (
+                    <button
+                        type="button"
+                        onClick={() => void handleLinkGoogle()}
+                        disabled={busy}
+                        className="mt-3 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                    >
+                        {busy ? "Koppelen..." : "Koppel Google-account"}
+                    </button>
+                ) : null}
+            </div>
+
+            <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                <p className="text-sm font-semibold text-gray-800">Cloudback-up</p>
+                <p className="mt-2 text-sm text-gray-600">
+                    Status:{" "}
+                    <strong>
+                        {backupStatus?.state === "healthy"
+                            ? "Gezond"
+                            : backupStatus?.state === "running"
+                              ? "Bezig"
+                              : backupStatus?.state === "failed"
+                                ? "Mislukt"
+                                : backupStatus?.state === "stale"
+                                  ? "Te oud"
+                                  : "Nog niet geverifieerd"}
+                    </strong>
+                </p>
+                {backupStatus?.latestVerifiedAt ? (
+                    <p className="mt-1 text-xs text-gray-500">
+                        Laatst gecontroleerd:{" "}
+                        {new Date(backupStatus.latestVerifiedAt).toLocaleString("nl-NL")}
+                    </p>
+                ) : null}
+            </div>
 
             <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
                 <p className="text-sm font-medium text-gray-700">Actieve join-code</p>

@@ -33,6 +33,23 @@ export interface Recipe {
     createdAt: number;
     updatedAt: number;
     version: number;
+    deletedAt?: number;
+    deletedBy?: string;
+    lastRevisionId?: string;
+}
+
+export type RecipeRevisionAction = "update" | "delete" | "restore" | "mark_cooked";
+
+export interface RecipeRevision {
+    id: string;
+    householdId: string;
+    recipeId: string;
+    version: number;
+    action: RecipeRevisionAction;
+    snapshot: Recipe;
+    createdBy: string;
+    createdAt: number;
+    expiresAt: number;
 }
 
 export interface MealPlanEntry {
@@ -119,6 +136,15 @@ export interface InviteCode {
 export interface AppUser {
     uid: string;
     isAnonymous: boolean;
+    isPermanentAccount: boolean;
+}
+
+export interface BackupStatus {
+    latestExportAt?: number;
+    latestVerifiedAt?: number;
+    outputUriPrefix?: string;
+    state: "healthy" | "running" | "stale" | "failed" | "unknown";
+    message?: string;
 }
 
 export interface MigrationStatus {

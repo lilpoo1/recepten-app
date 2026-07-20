@@ -6,6 +6,7 @@ const DATABASE_VERSION = 1;
 const STORE_NAME = "records";
 const LOCAL_VALUE_PREFIX = "local-value:";
 const HOUSEHOLD_CACHE_PREFIX = "household-cache:";
+const HOUSEHOLD_CACHE_HISTORY_PREFIX = "household-cache-history:";
 const SHOPPING_PREFERENCES_PREFIX = "shopping-preferences:";
 
 interface StoredRecord<T> {
@@ -16,6 +17,11 @@ interface StoredRecord<T> {
 export interface HouseholdCache {
     recipes: Recipe[];
     mealPlan: MealPlanEntry[];
+}
+
+export interface HouseholdCacheSnapshot {
+    capturedAt: number;
+    cache: HouseholdCache;
 }
 
 function isBrowser() {
@@ -206,12 +212,40 @@ export async function persistHouseholdCache(
     mealPlan: MealPlanEntry[]
 ): Promise<boolean> {
     try {
-        await writeRecord(`${HOUSEHOLD_CACHE_PREFIX}${householdId}`, { recipes, mealPlan } satisfies HouseholdCache);
+        const nextCache = { recipes, mealPlan } satisfies HouseholdCache;
+        const historyKey = `${HOUSEHOLD_CACHE_HISTORY_PREFIX}${householdId}`;
+        const history = (await readRecord<HouseholdCacheSnapshot[]>(historyKey)) ?? [];
+        const signature = (cache: HouseholdCache) =>
+            JSON.stringify({
+                recipes: cache.recipes.map((recipe) => [
+                    recipe.id,
+                    recipe.version,
+                    recipe.deletedAt ?? 0,
+                ]),
+                mealPlan: cache.mealPlan.map((entry) => [entry.id, entry.version]),
+            });
+        const nextSignature = signature(nextCache);
+        const uniqueHistory = history.filter(
+            (snapshot) => signature(snapshot.cache) !== nextSignature
+        );
+        await writeRecord(historyKey, [
+            { capturedAt: Date.now(), cache: nextCache },
+            ...uniqueHistory,
+        ].slice(0, 3));
+        await writeRecord(`${HOUSEHOLD_CACHE_PREFIX}${householdId}`, nextCache);
         return true;
     } catch (error) {
         console.warn("Huishoudcache kon niet offline worden opgeslagen.", error);
         return false;
     }
+}
+
+export async function readHouseholdCacheSnapshots(
+    householdId: string
+): Promise<HouseholdCacheSnapshot[]> {
+    return (await readRecord<HouseholdCacheSnapshot[]>(
+        `${HOUSEHOLD_CACHE_HISTORY_PREFIX}${householdId}`
+    )) ?? [];
 }
 
 export async function readShoppingPreferences<T>(storageKey: string): Promise<T | null> {

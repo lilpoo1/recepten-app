@@ -73,6 +73,12 @@ export default function RecipeDetailClient({ id }: { id: string }) {
                 </div>
                 <div className="absolute right-4 top-4 flex gap-2">
                     <Link
+                        href={`/recipes/${recipe.id}/history`}
+                        className="rounded-full bg-white/80 px-3 py-2 text-sm text-gray-700 shadow backdrop-blur-sm"
+                    >
+                        Versies
+                    </Link>
+                    <Link
                         href={`/recipes/${recipe.id}/edit`}
                         className="rounded-full bg-white/80 px-3 py-2 text-sm text-gray-700 shadow backdrop-blur-sm"
                     >

@@ -38,9 +38,14 @@ export default function RecipesPage() {
             <div className="space-y-4 p-4 pb-40">
                 <header className="flex items-center justify-between">
                     <h1 className="text-2xl font-bold text-gray-800">Mijn Recepten</h1>
-                    <Link href="/household/manage" className="text-xs font-semibold text-gray-600">
-                        Huishouden
-                    </Link>
+                    <div className="flex items-center gap-3">
+                        <Link href="/recipes/trash" className="text-xs font-semibold text-gray-600">
+                            Prullenbak
+                        </Link>
+                        <Link href="/household/manage" className="text-xs font-semibold text-gray-600">
+                            Huishouden
+                        </Link>
+                    </div>
                 </header>
 
                 <div className="space-y-2">

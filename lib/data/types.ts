@@ -6,8 +6,10 @@ import {
     MealPlanDraft,
     MealPlanEntry,
     Membership,
+    BackupStatus,
     Recipe,
     RecipeDraft,
+    RecipeRevision,
     UserRole,
 } from "@/types";
 
@@ -27,8 +29,17 @@ export interface DataSource {
     ): Unsubscribe;
     addRecipe(householdId: string, userId: string, recipe: RecipeDraft): Promise<string>;
     updateRecipe(householdId: string, userId: string, recipe: Recipe): Promise<void>;
-    deleteRecipe(householdId: string, recipeId: string): Promise<void>;
-    markAsCooked(householdId: string, recipeId: string): Promise<void>;
+    deleteRecipe(householdId: string, userId: string, recipeId: string): Promise<void>;
+    restoreRecipe(householdId: string, userId: string, recipeId: string): Promise<void>;
+    loadDeletedRecipes(householdId: string): Promise<Recipe[]>;
+    loadRecipeRevisions(householdId: string, recipeId: string): Promise<RecipeRevision[]>;
+    restoreRecipeVersion(
+        householdId: string,
+        userId: string,
+        recipeId: string,
+        revisionId: string
+    ): Promise<void>;
+    markAsCooked(householdId: string, userId: string, recipeId: string): Promise<void>;
     upsertMealPlanEntry(householdId: string, userId: string, draft: MealPlanDraft): Promise<void>;
     removeMealPlanEntry(
         householdId: string,
@@ -54,5 +65,11 @@ export interface HouseholdDataSource {
     getInviteCode(code: string): Promise<InviteCode | null>;
     getMigrationState(householdId: string): Promise<{ done: boolean; importedAt?: number }>;
     setMigrationDone(householdId: string): Promise<void>;
-    ensureMembershipDocument(userId: string, householdId: string, role: UserRole): Promise<void>;
+    ensureMembershipDocument(
+        userId: string,
+        householdId: string,
+        role: UserRole,
+        inviteCode?: string
+    ): Promise<void>;
+    getBackupStatus(): Promise<BackupStatus | null>;
 }

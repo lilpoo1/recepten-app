@@ -1,0 +1,23 @@
+{
+  "displayName": "Recepten backup failure or stale archive",
+  "combiner": "OR",
+  "enabled": true,
+  "conditions": [
+    {
+      "displayName": "Backup job error detected",
+      "conditionMatchedLog": {
+        "filter": "(resource.type=\"cloud_run_job\" AND resource.labels.job_name=~\"recepten-(daily-export|backup-verify|expired-cleanup)\" AND severity>=ERROR) OR logName=\"projects/recepten-app-87beb/logs/recepten-backup-alert-test\""
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": {
+      "period": "300s"
+    },
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "content": "Controleer de Cloud Run-backuptaken en system/backupStatus. Deployments stoppen wanneer verificatie ouder is dan 25 uur.",
+    "mimeType": "text/markdown"
+  }
+}

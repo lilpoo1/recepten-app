@@ -1,17 +1,17 @@
 import {
     arrayUnion,
     collection,
+    deleteField,
     doc,
     DocumentData,
     getDoc,
     getDocs,
-    increment,
     onSnapshot,
     query,
+    runTransaction,
     serverTimestamp,
     setDoc,
     Timestamp,
-    updateDoc,
     where,
     writeBatch,
 } from "firebase/firestore";
@@ -20,6 +20,7 @@ import { DataSource, HouseholdDataSource, HouseholdSnapshot, Unsubscribe } from 
 import {
     BringShareSnapshotInput,
     BringShareSnapshotResult,
+    BackupStatus,
     Household,
     InviteCode,
     MealPlanDraft,
@@ -27,11 +28,15 @@ import {
     Membership,
     Recipe,
     RecipeDraft,
+    RecipeRevision,
+    RecipeRevisionAction,
     UserRole,
 } from "@/types";
 import { createId, createInviteCode } from "@/lib/utils/ids";
 import { normalizeMealPlanEntry, normalizeRecipe } from "@/lib/data/normalize";
 import { toMillis } from "@/lib/utils/time";
+
+const REVISION_RETENTION_MS = 98 * 24 * 60 * 60 * 1000;
 
 function ensureDb() {
     if (!db) {
@@ -48,6 +53,72 @@ function omitUndefinedFields<T extends Record<string, unknown>>(input: T): Docum
         }
     });
     return output;
+}
+
+function recipeDocumentFields(recipe: Recipe): DocumentData {
+    return omitUndefinedFields({
+        householdId: recipe.householdId,
+        createdBy: recipe.createdBy,
+        title: recipe.title,
+        description: recipe.description,
+        image: recipe.image,
+        ingredients: recipe.ingredients,
+        baseServings: recipe.baseServings,
+        steps: recipe.steps,
+        prepTimeMinutes: recipe.prepTimeMinutes,
+        difficulty: recipe.difficulty,
+        tags: recipe.tags,
+        notes: recipe.notes,
+        cookingHistory: recipe.cookingHistory,
+    });
+}
+
+function revisionDocument(
+    householdId: string,
+    recipeId: string,
+    userId: string,
+    action: RecipeRevisionAction,
+    snapshot: DocumentData,
+    version: number
+): DocumentData {
+    return {
+        householdId,
+        recipeId,
+        version,
+        action,
+        snapshot,
+        createdBy: userId,
+        createdAt: serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(Date.now() + REVISION_RETENTION_MS),
+    };
+}
+
+function mapRecipeRevision(
+    id: string,
+    data: DocumentData,
+    householdId: string,
+    recipeId: string
+): RecipeRevision {
+    return {
+        id,
+        householdId,
+        recipeId,
+        version: typeof data.version === "number" ? data.version : 1,
+        action:
+            data.action === "delete" ||
+            data.action === "restore" ||
+            data.action === "mark_cooked"
+                ? data.action
+                : "update",
+        snapshot: normalizeRecipe(
+            { id: recipeId, ...(data.snapshot ?? {}) },
+            householdId,
+            typeof data.createdBy === "string" ? data.createdBy : "unknown-user"
+        ),
+        createdBy: typeof data.createdBy === "string" ? data.createdBy : "unknown-user",
+        createdAt: toMillis(data.createdAt),
+        expiresAt: toMillis(data.expiresAt),
+    };
 }
 
 function mapHousehold(id: string, data: DocumentData): Household {
@@ -106,7 +177,7 @@ export class FirebaseDataSource implements DataSource {
 
         const recipes = recipesSnapshot.docs.map((item) =>
             normalizeRecipe({ id: item.id, ...item.data() }, householdId, "unknown-user")
-        );
+        ).filter((recipe) => !recipe.deletedAt);
         const mealPlan = mealPlanSnapshot.docs.map((item) =>
             normalizeMealPlanEntry({ id: item.id, ...item.data() }, householdId, "unknown-user")
         );
@@ -131,7 +202,7 @@ export class FirebaseDataSource implements DataSource {
             (snapshot) => {
                 recipes = snapshot.docs.map((item) =>
                     normalizeRecipe({ id: item.id, ...item.data() }, householdId, "unknown-user")
-                );
+                ).filter((recipe) => !recipe.deletedAt);
                 push();
             }
         );
@@ -173,38 +244,267 @@ export class FirebaseDataSource implements DataSource {
     async updateRecipe(householdId: string, _userId: string, recipe: Recipe): Promise<void> {
         const dbRef = ensureDb();
         const ref = doc(dbRef, "households", householdId, "recipes", recipe.id);
-        await setDoc(
-            ref,
-            omitUndefinedFields({
-                ...recipe,
+        await runTransaction(dbRef, async (transaction) => {
+            const currentSnapshot = await transaction.get(ref);
+            if (!currentSnapshot.exists()) {
+                throw new Error("Recept bestaat niet meer.");
+            }
+
+            const current = normalizeRecipe(
+                { id: currentSnapshot.id, ...currentSnapshot.data() },
+                householdId,
+                _userId
+            );
+            if (recipe.version !== current.version) {
+                throw new Error("Dit recept is intussen gewijzigd. Vernieuw en probeer opnieuw.");
+            }
+
+            const revisionId = createId();
+            transaction.set(
+                doc(ref, "recipeRevisions", revisionId),
+                revisionDocument(
+                    householdId,
+                    recipe.id,
+                    _userId,
+                    "update",
+                    currentSnapshot.data(),
+                    current.version
+                )
+            );
+            transaction.set(ref, {
+                ...recipeDocumentFields(recipe),
+                createdAt: currentSnapshot.data().createdAt,
                 updatedAt: serverTimestamp(),
-                version: increment(1),
-            }),
-            { merge: true }
-        );
-    }
-
-    async deleteRecipe(householdId: string, recipeId: string): Promise<void> {
-        const dbRef = ensureDb();
-        const batch = writeBatch(dbRef);
-        const recipeRef = doc(dbRef, "households", householdId, "recipes", recipeId);
-        batch.delete(recipeRef);
-
-        const mealPlanRef = collection(dbRef, "households", householdId, "mealPlan");
-        const recipeEntries = await getDocs(query(mealPlanRef, where("recipeId", "==", recipeId)));
-        recipeEntries.forEach((entry) => {
-            batch.delete(entry.ref);
+                version: current.version + 1,
+                lastRevisionId: revisionId,
+            });
         });
-
-        await batch.commit();
     }
 
-    async markAsCooked(householdId: string, recipeId: string): Promise<void> {
+    async deleteRecipe(householdId: string, userId: string, recipeId: string): Promise<void> {
         const dbRef = ensureDb();
-        await updateDoc(doc(dbRef, "households", householdId, "recipes", recipeId), {
-            cookingHistory: arrayUnion(Date.now()),
-            updatedAt: serverTimestamp(),
-            version: increment(1),
+        const recipeRef = doc(dbRef, "households", householdId, "recipes", recipeId);
+        const deletionQueueRef = doc(
+            dbRef,
+            "households",
+            householdId,
+            "recipeDeletionQueue",
+            recipeId
+        );
+        await runTransaction(dbRef, async (transaction) => {
+            const currentSnapshot = await transaction.get(recipeRef);
+            if (!currentSnapshot.exists()) {
+                return;
+            }
+            const current = normalizeRecipe(
+                { id: recipeId, ...currentSnapshot.data() },
+                householdId,
+                userId
+            );
+            if (current.deletedAt) {
+                return;
+            }
+
+            const revisionId = createId();
+            transaction.set(
+                doc(recipeRef, "recipeRevisions", revisionId),
+                revisionDocument(
+                    householdId,
+                    recipeId,
+                    userId,
+                    "delete",
+                    currentSnapshot.data(),
+                    current.version
+                )
+            );
+            transaction.update(recipeRef, {
+                deletedAt: serverTimestamp(),
+                deletedBy: userId,
+                updatedAt: serverTimestamp(),
+                version: current.version + 1,
+                lastRevisionId: revisionId,
+            });
+            transaction.set(deletionQueueRef, {
+                householdId,
+                recipeId,
+                deletedAt: serverTimestamp(),
+                purgeAfter: Timestamp.fromMillis(Date.now() + REVISION_RETENTION_MS),
+            });
+        });
+    }
+
+    async restoreRecipe(householdId: string, userId: string, recipeId: string): Promise<void> {
+        const dbRef = ensureDb();
+        const recipeRef = doc(dbRef, "households", householdId, "recipes", recipeId);
+        const deletionQueueRef = doc(
+            dbRef,
+            "households",
+            householdId,
+            "recipeDeletionQueue",
+            recipeId
+        );
+        await runTransaction(dbRef, async (transaction) => {
+            const currentSnapshot = await transaction.get(recipeRef);
+            if (!currentSnapshot.exists()) {
+                throw new Error("Recept bestaat niet meer.");
+            }
+            const current = normalizeRecipe(
+                { id: recipeId, ...currentSnapshot.data() },
+                householdId,
+                userId
+            );
+            if (!current.deletedAt) {
+                return;
+            }
+
+            const revisionId = createId();
+            transaction.set(
+                doc(recipeRef, "recipeRevisions", revisionId),
+                revisionDocument(
+                    householdId,
+                    recipeId,
+                    userId,
+                    "restore",
+                    currentSnapshot.data(),
+                    current.version
+                )
+            );
+            transaction.update(recipeRef, {
+                deletedAt: deleteField(),
+                deletedBy: deleteField(),
+                updatedAt: serverTimestamp(),
+                version: current.version + 1,
+                lastRevisionId: revisionId,
+            });
+            transaction.delete(deletionQueueRef);
+        });
+    }
+
+    async loadDeletedRecipes(householdId: string): Promise<Recipe[]> {
+        const dbRef = ensureDb();
+        const snapshot = await getDocs(collection(dbRef, "households", householdId, "recipes"));
+        return snapshot.docs
+            .map((item) =>
+                normalizeRecipe({ id: item.id, ...item.data() }, householdId, "unknown-user")
+            )
+            .filter((recipe) => Boolean(recipe.deletedAt))
+            .sort((left, right) => (right.deletedAt ?? 0) - (left.deletedAt ?? 0));
+    }
+
+    async loadRecipeRevisions(
+        householdId: string,
+        recipeId: string
+    ): Promise<RecipeRevision[]> {
+        const dbRef = ensureDb();
+        const snapshot = await getDocs(
+            collection(
+                dbRef,
+                "households",
+                householdId,
+                "recipes",
+                recipeId,
+                "recipeRevisions"
+            )
+        );
+        return snapshot.docs
+            .map((item) => mapRecipeRevision(item.id, item.data(), householdId, recipeId))
+            .sort((left, right) => right.createdAt - left.createdAt);
+    }
+
+    async restoreRecipeVersion(
+        householdId: string,
+        userId: string,
+        recipeId: string,
+        revisionId: string
+    ): Promise<void> {
+        const dbRef = ensureDb();
+        const recipeRef = doc(dbRef, "households", householdId, "recipes", recipeId);
+        const targetRevisionRef = doc(recipeRef, "recipeRevisions", revisionId);
+        const deletionQueueRef = doc(
+            dbRef,
+            "households",
+            householdId,
+            "recipeDeletionQueue",
+            recipeId
+        );
+
+        await runTransaction(dbRef, async (transaction) => {
+            const currentSnapshot = await transaction.get(recipeRef);
+            const targetRevisionSnapshot = await transaction.get(targetRevisionRef);
+            if (!currentSnapshot.exists() || !targetRevisionSnapshot.exists()) {
+                throw new Error("De gekozen receptversie bestaat niet meer.");
+            }
+
+            const current = normalizeRecipe(
+                { id: recipeId, ...currentSnapshot.data() },
+                householdId,
+                userId
+            );
+            const targetData = targetRevisionSnapshot.data().snapshot as
+                | DocumentData
+                | undefined;
+            if (!targetData) {
+                throw new Error("De gekozen receptversie is ongeldig.");
+            }
+
+            const currentRevisionId = createId();
+            transaction.set(
+                doc(recipeRef, "recipeRevisions", currentRevisionId),
+                revisionDocument(
+                    householdId,
+                    recipeId,
+                    userId,
+                    "restore",
+                    currentSnapshot.data(),
+                    current.version
+                )
+            );
+            const restoredData = { ...targetData };
+            delete restoredData.deletedAt;
+            delete restoredData.deletedBy;
+            transaction.set(recipeRef, {
+                ...restoredData,
+                householdId,
+                createdAt: currentSnapshot.data().createdAt,
+                updatedAt: serverTimestamp(),
+                version: current.version + 1,
+                lastRevisionId: currentRevisionId,
+            });
+            transaction.delete(deletionQueueRef);
+        });
+    }
+
+    async markAsCooked(householdId: string, userId: string, recipeId: string): Promise<void> {
+        const dbRef = ensureDb();
+        const recipeRef = doc(dbRef, "households", householdId, "recipes", recipeId);
+        await runTransaction(dbRef, async (transaction) => {
+            const currentSnapshot = await transaction.get(recipeRef);
+            if (!currentSnapshot.exists()) {
+                throw new Error("Recept bestaat niet meer.");
+            }
+            const current = normalizeRecipe(
+                { id: recipeId, ...currentSnapshot.data() },
+                householdId,
+                userId
+            );
+            const revisionId = createId();
+            transaction.set(
+                doc(recipeRef, "recipeRevisions", revisionId),
+                revisionDocument(
+                    householdId,
+                    recipeId,
+                    userId,
+                    "mark_cooked",
+                    currentSnapshot.data(),
+                    current.version
+                )
+            );
+            transaction.update(recipeRef, {
+                cookingHistory: arrayUnion(Date.now()),
+                updatedAt: serverTimestamp(),
+                version: current.version + 1,
+                lastRevisionId: revisionId,
+            });
         });
     }
 
@@ -352,7 +652,12 @@ export class FirebaseHouseholdDataSource implements HouseholdDataSource {
             throw new Error("Deze code is verlopen.");
         }
 
-        await this.ensureMembershipDocument(userId, invite.householdId, "member");
+        await this.ensureMembershipDocument(
+            userId,
+            invite.householdId,
+            "member",
+            normalizedCode
+        );
         const membership = await this.getMembership(userId);
 
         if (!membership) {
@@ -467,18 +772,23 @@ export class FirebaseHouseholdDataSource implements HouseholdDataSource {
     async ensureMembershipDocument(
         userId: string,
         householdId: string,
-        role: UserRole
+        role: UserRole,
+        inviteCode?: string
     ): Promise<void> {
+        if (role === "member" && !inviteCode) {
+            throw new Error("Een geldige joincode is verplicht.");
+        }
         const dbRef = ensureDb();
+        const membershipRef = doc(dbRef, "userMemberships", userId);
         const batch = writeBatch(dbRef);
         batch.set(
-            doc(dbRef, "userMemberships", userId),
+            membershipRef,
             {
                 householdId,
                 role,
                 joinedAt: serverTimestamp(),
+                ...(inviteCode ? { inviteCode } : {}),
             },
-            { merge: true }
         );
         batch.set(
             doc(dbRef, "households", householdId, "members", userId),
@@ -486,8 +796,36 @@ export class FirebaseHouseholdDataSource implements HouseholdDataSource {
                 role,
                 joinedAt: serverTimestamp(),
             },
-            { merge: true }
         );
         await batch.commit();
+
+        if (inviteCode) {
+            await setDoc(membershipRef, { inviteCode: deleteField() }, { merge: true });
+        }
+    }
+
+    async getBackupStatus(): Promise<BackupStatus | null> {
+        const dbRef = ensureDb();
+        const snapshot = await getDoc(doc(dbRef, "system", "backupStatus"));
+        if (!snapshot.exists()) {
+            return null;
+        }
+
+        const data = snapshot.data();
+        const state =
+            data.state === "healthy" ||
+            data.state === "running" ||
+            data.state === "stale" ||
+            data.state === "failed"
+                ? data.state
+                : "unknown";
+        return {
+            latestExportAt: toMillis(data.latestExportAt, 0) || undefined,
+            latestVerifiedAt: toMillis(data.latestVerifiedAt, 0) || undefined,
+            outputUriPrefix:
+                typeof data.outputUriPrefix === "string" ? data.outputUriPrefix : undefined,
+            state,
+            message: typeof data.message === "string" ? data.message : undefined,
+        };
     }
 }

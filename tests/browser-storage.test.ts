@@ -5,6 +5,7 @@ import {
     persistHouseholdCache,
     persistShoppingPreferences,
     readHouseholdCache,
+    readHouseholdCacheSnapshots,
     readLocalValue,
     readShoppingPreferences,
 } from "@/lib/storage/browser-storage";
@@ -89,6 +90,22 @@ describe("browser storage", () => {
         expect((await readHouseholdCache("household-1"))?.recipes[0]?.image).toHaveLength(
             largeImage.length
         );
+    });
+
+    it("bewaart drie verschillende lokale noodsnapshots", async () => {
+        for (let version = 1; version <= 4; version += 1) {
+            await persistHouseholdCache(
+                "household-1",
+                [{ ...recipe(), version, title: `Versie ${version}` }],
+                []
+            );
+        }
+
+        const snapshots = await readHouseholdCacheSnapshots("household-1");
+        expect(snapshots).toHaveLength(3);
+        expect(snapshots.map((snapshot) => snapshot.cache.recipes[0].version)).toEqual([
+            4, 3, 2,
+        ]);
     });
 
     it("migreert boodschappenvoorkeuren zonder de overige browseropslag te raken", async () => {
