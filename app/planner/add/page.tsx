@@ -101,8 +101,9 @@ function AddRecipeContent() {
 
                 <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                     <div className="min-w-0">
-                        <label className="mb-1 block text-xs text-gray-500">Type</label>
+                        <label htmlFor="meal-type" className="mb-1 block text-xs text-gray-500">Type</label>
                         <select
+                            id="meal-type"
                             value={selectedType}
                             onChange={(event) => {
                                 setSelectedType(parseMealType(event.target.value));
@@ -116,8 +117,9 @@ function AddRecipeContent() {
                         </select>
                     </div>
                     <div className="min-w-0">
-                        <label className="mb-1 block text-xs text-gray-500">Personen</label>
+                        <label htmlFor="meal-servings" className="mb-1 block text-xs text-gray-500">Personen</label>
                         <input
+                            id="meal-servings"
                             type="number"
                             min={1}
                             value={servingsInput}

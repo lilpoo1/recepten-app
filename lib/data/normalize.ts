@@ -11,6 +11,12 @@ function asRecord(value: unknown): UnknownRecord {
     return typeof value === "object" && value !== null ? (value as UnknownRecord) : {};
 }
 
+function normalizeStringArray(value: unknown): string[] {
+    return Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === "string")
+        : [];
+}
+
 function normalizeIngredient(
     value: unknown
 ): Recipe["ingredients"][number] | null {
@@ -56,18 +62,22 @@ export function normalizeRecipe(
                 .filter((ingredient): ingredient is Recipe["ingredients"][number] => Boolean(ingredient))
             : [],
         baseServings:
-            typeof data.baseServings === "number" && data.baseServings > 0
+            typeof data.baseServings === "number" &&
+            Number.isFinite(data.baseServings) &&
+            data.baseServings > 0
                 ? data.baseServings
                 : 2,
-        steps: Array.isArray(data.steps) ? (data.steps as string[]) : [],
+        steps: normalizeStringArray(data.steps),
         prepTimeMinutes:
-            typeof data.prepTimeMinutes === "number" ? data.prepTimeMinutes : undefined,
+            typeof data.prepTimeMinutes === "number" && Number.isFinite(data.prepTimeMinutes)
+                ? data.prepTimeMinutes
+                : undefined,
         difficulty:
             typeof data.difficulty === "number" &&
             [1, 2, 3, 4, 5].includes(data.difficulty)
                 ? (data.difficulty as Recipe["difficulty"])
                 : undefined,
-        tags: Array.isArray(data.tags) ? (data.tags as string[]) : [],
+        tags: normalizeStringArray(data.tags),
         notes: typeof data.notes === "string" ? data.notes : "",
         cookingHistory: Array.isArray(data.cookingHistory)
             ? (data.cookingHistory as number[]).filter((item) => typeof item === "number")
@@ -98,7 +108,10 @@ export function normalizeMealPlanEntry(
         householdId,
         createdBy: typeof data.createdBy === "string" ? data.createdBy : userId,
         recipeId: typeof data.recipeId === "string" ? data.recipeId : "",
-        servings: typeof data.servings === "number" && data.servings > 0 ? data.servings : 2,
+        servings:
+            typeof data.servings === "number" && Number.isFinite(data.servings) && data.servings > 0
+                ? data.servings
+                : 2,
         mealType,
         createdAt,
         updatedAt: toMillis(data.updatedAt, createdAt),

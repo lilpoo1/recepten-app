@@ -274,8 +274,9 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
     return (
         <form onSubmit={handleSubmit} className="space-y-6 p-4 pb-20">
             <div>
-                <label className="block text-sm font-medium text-gray-700">Titel</label>
+                <label htmlFor="recipe-title" className="block text-sm font-medium text-gray-700">Titel</label>
                 <input
+                    id="recipe-title"
                     type="text"
                     required
                     value={title}
@@ -288,8 +289,9 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
             </div>
 
             <div>
-                <label className="block text-sm font-medium text-gray-700">Upload foto</label>
+                <label htmlFor="recipe-image" className="block text-sm font-medium text-gray-700">Upload foto</label>
                 <input
+                    id="recipe-image"
                     type="file"
                     accept="image/*"
                     onChange={(event) => void handleImageSelected(event)}
@@ -321,8 +323,9 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Tijd (min)</label>
+                    <label htmlFor="recipe-prep-time" className="block text-sm font-medium text-gray-700">Tijd (min)</label>
                     <input
+                        id="recipe-prep-time"
                         type="number"
                         value={prepTimeInput}
                         min={1}
@@ -334,8 +337,9 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                     />
                 </div>
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Moeilijkheid</label>
+                    <label htmlFor="recipe-difficulty" className="block text-sm font-medium text-gray-700">Moeilijkheid</label>
                     <select
+                        id="recipe-difficulty"
                         value={difficulty}
                         onChange={(event) => {
                             clearError();
@@ -351,8 +355,9 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                     </select>
                 </div>
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Personen</label>
+                    <label htmlFor="recipe-servings" className="block text-sm font-medium text-gray-700">Personen</label>
                     <input
+                        id="recipe-servings"
                         type="number"
                         value={baseServingsInput}
                         min={1}

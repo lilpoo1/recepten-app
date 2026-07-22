@@ -22,6 +22,14 @@ Mobiele Next.js app voor:
 
 ## Lokale ontwikkeling
 
+Vereisten:
+
+- Node.js 20.9 of hoger
+- Java JDK 21 of hoger voor de Firebase Emulator Suite (`npm run test:integration`)
+
+Controleer de actieve runtimes met `node --version` en `java -version`. Het bestand
+`.java-version` legt Java 21 vast voor version managers; CI gebruikt eveneens Java 21.
+
 ```bash
 npm run dev
 ```
