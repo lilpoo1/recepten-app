@@ -13,6 +13,8 @@ Er staan geen e-mailadressen, tokens of Firebase-UID's in dit document.
 - De eerste managed backup is `READY`, met snapshotmoment
   `2026-07-20T09:08:12.304312Z` en vervaldatum
   `2026-10-26T09:08:12.304312Z`.
+- Ook de automatisch aangemaakte managed backups van 21 en 22 juli zijn
+  `READY`, met vervaldatums op respectievelijk 27 en 28 oktober 2026.
 
 ## Geïsoleerd archief
 
@@ -26,6 +28,10 @@ Er staan geen e-mailadressen, tokens of Firebase-UID's in dit document.
 - Er zijn geen gebruikersbeheerde sleutels voor het back-upserviceaccount.
 - De export-, verifier- en opschoontaken hebben alle een succesvolle uitvoering.
   De dagelijkse planners staan aan in tijdzone `Europe/Amsterdam`.
+- De planners hebben zonder handmatige start op 21 en 22 juli opnieuw volledige
+  exports van elk 151 documenten gemaakt. De bijbehorende dagelijkse
+  verificatietaken zijn beide geslaagd; op 22 juli was de live status
+  `healthy` en 12,5 uur oud.
 
 ## Echte herstelproeven
 
@@ -68,6 +74,8 @@ ongeveer 32 minuten uitgevoerd, ruim binnen het doel van vier uur.
 - Een login vanuit een privébrowser werkte met dezelfde eigenaar-UID; het
   Firebase-inlogtijdstip veranderde van `2026-07-20T19:25:30.929Z` naar
   `2026-07-20T19:32:19.614Z` en dezelfde 31 recepten waren zichtbaar.
+- De eigenaar bevestigde op 22 juli dat tweestapsverificatie op het gekoppelde
+  Google-account actief is.
 - Firestore bewaart voor deze koppeling alleen UID, huishouden en rol; profiel-
   en e-mailgegevens blijven uitsluitend binnen Firebase Authentication.
 
@@ -76,7 +84,8 @@ ongeveer 32 minuten uitgevoerd, ruim binnen het doel van vier uur.
 Na de laatste verifiercorrectie zijn de volgende controles opnieuw uitgevoerd:
 
 - unit-tests: 10 geslaagd;
-- Firestore-rulestests: 12 geslaagd;
+- Firestore-rulestests: 13 geslaagd, inclusief atomair herstel van een eerdere
+  receptversie waarbij de vervangen versie als revision behouden blijft;
 - ESLint: geslaagd;
 - Next.js-productiebuild: geslaagd;
 - live back-upversheid: `healthy`, ongeveer twee uur oud.

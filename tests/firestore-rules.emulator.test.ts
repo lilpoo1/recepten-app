@@ -287,6 +287,101 @@ describeWithEmulator("Firestore recipe recovery rules", () => {
         }
     });
 
+    it("herstelt een eerdere receptversie en bewaart de vervangen versie atomair", async () => {
+        const database = environment.authenticatedContext("user-a").firestore();
+        const recipeRef = doc(
+            database,
+            "households",
+            "household-a",
+            "recipes",
+            "recipe-a"
+        );
+        const versionOne = (await getDoc(recipeRef)).data();
+        if (!versionOne) {
+            throw new Error("Startversie ontbreekt.");
+        }
+
+        const versionOneRevision = doc(
+            recipeRef,
+            "recipeRevisions",
+            "version-one"
+        );
+        const updateBatch = writeBatch(database);
+        updateBatch.set(versionOneRevision, {
+            householdId: "household-a",
+            recipeId: "recipe-a",
+            version: 1,
+            action: "update",
+            snapshot: versionOne,
+            createdBy: "user-a",
+            createdAt: serverTimestamp(),
+            expiresAt: Timestamp.fromMillis(Date.now() + 98 * 24 * 60 * 60 * 1000),
+        });
+        updateBatch.set(recipeRef, {
+            ...versionOne,
+            title: "Nieuwere versie",
+            updatedAt: serverTimestamp(),
+            version: 2,
+            lastRevisionId: "version-one",
+        });
+        await assertSucceeds(updateBatch.commit());
+
+        const versionTwo = (await getDoc(recipeRef)).data();
+        if (!versionTwo) {
+            throw new Error("Gewijzigde versie ontbreekt.");
+        }
+        const versionTwoRevision = doc(
+            recipeRef,
+            "recipeRevisions",
+            "version-two-before-restore"
+        );
+        const deletionQueueRef = doc(
+            database,
+            "households",
+            "household-a",
+            "recipeDeletionQueue",
+            "recipe-a"
+        );
+        const restoreBatch = writeBatch(database);
+        restoreBatch.set(versionTwoRevision, {
+            householdId: "household-a",
+            recipeId: "recipe-a",
+            version: 2,
+            action: "restore",
+            snapshot: versionTwo,
+            createdBy: "user-a",
+            createdAt: serverTimestamp(),
+            expiresAt: Timestamp.fromMillis(Date.now() + 98 * 24 * 60 * 60 * 1000),
+        });
+        restoreBatch.set(recipeRef, {
+            ...versionOne,
+            createdAt: versionTwo.createdAt,
+            updatedAt: serverTimestamp(),
+            version: 3,
+            lastRevisionId: "version-two-before-restore",
+        });
+        restoreBatch.delete(deletionQueueRef);
+        await assertSucceeds(restoreBatch.commit());
+
+        const restored = (await getDoc(recipeRef)).data();
+        const preservedVersionTwo = (await getDoc(versionTwoRevision)).data();
+        if (
+            !restored ||
+            restored.title !== versionOne.title ||
+            restored.version !== 3 ||
+            restored.lastRevisionId !== "version-two-before-restore"
+        ) {
+            throw new Error("De gekozen receptversie is niet correct hersteld.");
+        }
+        if (
+            !preservedVersionTwo ||
+            preservedVersionTwo.snapshot.title !== "Nieuwere versie" ||
+            preservedVersionTwo.version !== 2
+        ) {
+            throw new Error("De vervangen receptversie is niet bewaard.");
+        }
+    });
+
     it("isoleert recepten tussen huishoudens", async () => {
         const database = environment.authenticatedContext("user-a").firestore();
         await assertFails(
