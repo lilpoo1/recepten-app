@@ -453,15 +453,33 @@ export default function PlannerPage() {
                                         type="button"
                                         onClick={() => void handleQuickAssign(recipe.id)}
                                         disabled={pickerBusy}
-                                        className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-3 text-left shadow-sm hover:bg-gray-50 disabled:opacity-60"
+                                        className="flex w-full items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 text-left shadow-sm hover:bg-gray-50 disabled:opacity-60"
                                     >
-                                        <div className="min-w-0">
+                                        {recipe.image ? (
+                                            <Image
+                                                src={recipe.image}
+                                                alt=""
+                                                aria-hidden="true"
+                                                width={56}
+                                                height={56}
+                                                unoptimized
+                                                className="h-14 w-14 shrink-0 rounded-lg bg-gray-100 object-cover"
+                                            />
+                                        ) : (
+                                            <span
+                                                aria-hidden="true"
+                                                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-lg font-semibold text-gray-400"
+                                            >
+                                                R
+                                            </span>
+                                        )}
+                                        <div className="min-w-0 flex-1">
                                             <p className="truncate font-semibold text-gray-800">{recipe.title}</p>
                                             <p className="mt-1 text-xs text-gray-500">
                                                 Tijd {recipe.prepTimeMinutes ?? "-"}m | Basis {recipe.baseServings} pers.
                                             </p>
                                         </div>
-                                        <span className="ml-3 text-xs font-semibold text-green-700">
+                                        <span className="shrink-0 text-xs font-semibold text-green-700">
                                             {pickerBusy ? "Opslaan..." : "Kies"}
                                         </span>
                                     </button>
