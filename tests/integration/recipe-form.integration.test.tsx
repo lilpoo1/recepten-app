@@ -27,6 +27,7 @@ const initialRecipe: Recipe = {
     title: "Oude titel",
     ingredients: [{ name: "Tomaat", quantityText: "2 stuks" }],
     baseServings: 2,
+    mealTypes: ["dinner", "other"],
     steps: ["Snijd"],
     prepTimeMinutes: 30,
     difficulty: 3,
@@ -73,8 +74,32 @@ describe("RecipeForm", () => {
             prepTimeMinutes: 30,
             difficulty: 3,
             baseServings: 2,
+            mealTypes: ["dinner"],
         }));
         expect(mocks.push).toHaveBeenCalledWith("/recipes");
+    });
+
+    it("slaat meerdere recepttypen op en vereist minimaal één keuze", async () => {
+        const user = userEvent.setup();
+        render(<RecipeForm />);
+
+        await user.click(screen.getByRole("checkbox", { name: "Diner" }));
+        await user.type(screen.getByLabelText("Titel"), "Soep");
+        await user.click(screen.getByRole("button", { name: "Opslaan" }));
+
+        expect(await screen.findByText("Kies minimaal 1 type gerecht.")).toBeInTheDocument();
+        expect(mocks.addRecipe).not.toHaveBeenCalled();
+
+        await user.click(screen.getByRole("checkbox", { name: "Anders" }));
+        await user.type(screen.getByPlaceholderText("Ingredient"), "Water");
+        await user.click(screen.getByRole("button", { name: "Voeg ingredient toe" }));
+        await user.click(screen.getByRole("button", { name: "Opslaan" }));
+
+        await waitFor(() =>
+            expect(mocks.addRecipe).toHaveBeenCalledWith(
+                expect.objectContaining({ mealTypes: ["other"] })
+            )
+        );
     });
 
     it("werkt een bestaand recept bij en toont opslagfouten", async () => {
@@ -90,6 +115,7 @@ describe("RecipeForm", () => {
         expect(mocks.updateRecipe).toHaveBeenCalledWith(expect.objectContaining({
             id: "recipe-1",
             title: "Nieuwe titel",
+            mealTypes: ["dinner", "other"],
         }));
         expect(mocks.push).not.toHaveBeenCalled();
     });

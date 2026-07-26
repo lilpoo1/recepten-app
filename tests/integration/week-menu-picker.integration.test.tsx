@@ -18,6 +18,7 @@ const recipe: Recipe = {
     title: "Pasta",
     ingredients: [],
     baseServings: 2,
+    mealTypes: ["dinner", "lunch"],
     steps: [],
     prepTimeMinutes: 20,
     difficulty: 2,
@@ -133,6 +134,20 @@ describe("weekmenu-picker", () => {
         expect(screen.getByRole("status")).toHaveTextContent(
             /Pasta is toegevoegd aan/i
         );
+    });
+
+    it("toont alleen recepttypen en kiest het eerste type wanneer diner ontbreekt", () => {
+        render(
+            <WeekMenuPicker
+                recipe={{ ...recipe, mealTypes: ["lunch", "other"] }}
+                open
+                onClose={vi.fn()}
+            />
+        );
+
+        expect(screen.queryByRole("radio", { name: "Diner" })).not.toBeInTheDocument();
+        expect(screen.getByRole("radio", { name: "Lunch" })).toBeChecked();
+        expect(screen.getByRole("radio", { name: "Anders" })).toBeInTheDocument();
     });
 
     it("vraagt bevestiging voordat een bezet slot wordt bijgewerkt", async () => {

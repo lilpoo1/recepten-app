@@ -44,6 +44,7 @@ function recipe(image?: string): Recipe {
         image,
         ingredients: [{ name: "Tomaat", quantityText: "2 stuks" }],
         baseServings: 2,
+        mealTypes: ["dinner"],
         steps: [],
         tags: [],
         cookingHistory: [],

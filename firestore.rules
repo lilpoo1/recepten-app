@@ -96,6 +96,7 @@ service cloud.firestore {
           'image',
           'ingredients',
           'baseServings',
+          'mealTypes',
           'steps',
           'prepTimeMinutes',
           'difficulty',
@@ -116,6 +117,13 @@ service cloud.firestore {
         && data.ingredients is list
         && (data.baseServings is int || data.baseServings is float)
         && data.baseServings > 0
+        && (!('mealTypes' in data)
+          || (
+            data.mealTypes is list
+            && data.mealTypes.size() > 0
+            && data.mealTypes.size() <= 3
+            && data.mealTypes.toSet().hasOnly(['dinner', 'lunch', 'other'])
+          ))
         && data.steps is list
         && data.tags is list
         && data.cookingHistory is list

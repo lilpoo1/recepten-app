@@ -99,6 +99,47 @@ describeWithEmulator("Firestore recipe recovery rules", () => {
         await environment.cleanup();
     });
 
+    it("accepteert meerdere recepttypen en legacy recepten zonder typeveld", async () => {
+        const database = environment.authenticatedContext("user-a").firestore();
+        await assertSucceeds(
+            setDoc(
+                doc(database, "households", "household-a", "recipes", "typed-recipe"),
+                {
+                    ...recipe("household-a", "user-a"),
+                    mealTypes: ["dinner", "lunch"],
+                }
+            )
+        );
+        await assertSucceeds(
+            setDoc(
+                doc(database, "households", "household-a", "recipes", "legacy-recipe"),
+                recipe("household-a", "user-a")
+            )
+        );
+    });
+
+    it("weigert lege en onbekende recepttypen", async () => {
+        const database = environment.authenticatedContext("user-a").firestore();
+        await assertFails(
+            setDoc(
+                doc(database, "households", "household-a", "recipes", "empty-types"),
+                {
+                    ...recipe("household-a", "user-a"),
+                    mealTypes: [],
+                }
+            )
+        );
+        await assertFails(
+            setDoc(
+                doc(database, "households", "household-a", "recipes", "unknown-type"),
+                {
+                    ...recipe("household-a", "user-a"),
+                    mealTypes: ["breakfast"],
+                }
+            )
+        );
+    });
+
     it("weigert harde deletes door een huishoudlid", async () => {
         const database = environment.authenticatedContext("user-a").firestore();
         await assertFails(

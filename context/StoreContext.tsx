@@ -490,6 +490,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 image: legacyRecipe.image,
                 ingredients: legacyRecipe.ingredients,
                 baseServings: legacyRecipe.baseServings,
+                mealTypes: legacyRecipe.mealTypes,
                 steps: legacyRecipe.steps,
                 prepTimeMinutes: legacyRecipe.prepTimeMinutes,
                 difficulty: legacyRecipe.difficulty,

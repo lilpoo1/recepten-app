@@ -4,8 +4,9 @@ import { ChangeEvent, FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import NextImage from "next/image";
 import { useStore } from "@/context/StoreContext";
-import { Ingredient, Recipe } from "@/types";
+import { Ingredient, MealType, Recipe } from "@/types";
 import { composeQuantityTextFromLegacy } from "@/lib/utils/quantity";
+import { MEAL_TYPES, MEAL_TYPE_LABELS } from "@/lib/meal-types";
 
 const MAX_IMAGE_DATA_URL_LENGTH = 350 * 1024;
 const MAX_IMAGE_DIMENSIONS = [1280, 1024, 800] as const;
@@ -105,6 +106,9 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
     const [prepTimeInput, setPrepTimeInput] = useState(String(initialRecipe?.prepTimeMinutes ?? 30));
     const [difficulty, setDifficulty] = useState(initialRecipe?.difficulty ?? 3);
     const [baseServingsInput, setBaseServingsInput] = useState(String(initialRecipe?.baseServings ?? 2));
+    const [mealTypes, setMealTypes] = useState<MealType[]>(
+        initialRecipe?.mealTypes ?? ["dinner"]
+    );
     const [ingredients, setIngredients] = useState<EditableIngredientRow[]>(
         (initialRecipe?.ingredients ?? []).map((ingredient, index) => ({
             id: `ingredient-${index}`,
@@ -212,6 +216,10 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                 throw new Error("Personen moet een geheel getal van minimaal 1 zijn.");
             }
 
+            if (mealTypes.length === 0) {
+                throw new Error("Kies minimaal 1 type gerecht.");
+            }
+
             if (ingredients.length === 0) {
                 throw new Error("Voeg minimaal 1 ingredient toe.");
             }
@@ -246,6 +254,7 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                     prepTimeMinutes: parsedPrepTime,
                     difficulty,
                     baseServings: parsedBaseServings,
+                    mealTypes,
                     updatedAt: Date.now(),
                 });
                 router.push(`/recipes/${initialRecipe.id}`);
@@ -260,6 +269,7 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                     difficulty,
                     tags: [],
                     baseServings: parsedBaseServings,
+                    mealTypes,
                     notes: "",
                 });
                 router.push("/recipes");
@@ -369,6 +379,41 @@ export default function RecipeForm({ initialRecipe }: { initialRecipe?: Recipe }
                     />
                 </div>
             </div>
+
+            <fieldset>
+                <legend className="block text-sm font-medium text-gray-700">
+                    Type gerecht
+                </legend>
+                <p className="mt-1 text-xs text-gray-500">
+                    Kies één of meer typen waarop dit recept gefilterd mag worden.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                    {MEAL_TYPES.map((mealType) => {
+                        const selected = mealTypes.includes(mealType);
+
+                        return (
+                            <label key={mealType} className="cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={selected}
+                                    onChange={(event) => {
+                                        clearError();
+                                        setMealTypes((current) =>
+                                            event.target.checked
+                                                ? [...current, mealType]
+                                                : current.filter((item) => item !== mealType)
+                                        );
+                                    }}
+                                    className="peer sr-only"
+                                />
+                                <span className="flex min-h-11 items-center rounded-full border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 shadow-sm transition peer-checked:border-green-600 peer-checked:bg-green-600 peer-checked:text-white peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-green-500 peer-focus-visible:ring-offset-2">
+                                    {MEAL_TYPE_LABELS[mealType]}
+                                </span>
+                            </label>
+                        );
+                    })}
+                </div>
+            </fieldset>
 
             <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">Ingredienten</label>

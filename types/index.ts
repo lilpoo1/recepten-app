@@ -24,6 +24,7 @@ export interface Recipe {
     image?: string; // Data URL or path
     ingredients: Ingredient[];
     baseServings: number;
+    mealTypes: MealType[];
     steps: string[];
     prepTimeMinutes?: number;
     difficulty?: 1 | 2 | 3 | 4 | 5;
@@ -162,6 +163,7 @@ export interface RecipeDraft {
     image?: string;
     ingredients: Ingredient[];
     baseServings: number;
+    mealTypes: MealType[];
     steps: string[];
     prepTimeMinutes?: number;
     difficulty?: 1 | 2 | 3 | 4 | 5;

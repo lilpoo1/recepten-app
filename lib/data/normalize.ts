@@ -2,6 +2,7 @@ import { MealPlanEntry, Recipe } from "@/types";
 import { createId } from "@/lib/utils/ids";
 import { toMillis } from "@/lib/utils/time";
 import { composeQuantityTextFromLegacy } from "@/lib/utils/quantity";
+import { normalizeRecipeMealTypes } from "@/lib/meal-types";
 
 interface UnknownRecord {
     [key: string]: unknown;
@@ -67,6 +68,7 @@ export function normalizeRecipe(
             data.baseServings > 0
                 ? data.baseServings
                 : 2,
+        mealTypes: normalizeRecipeMealTypes(data.mealTypes),
         steps: normalizeStringArray(data.steps),
         prepTimeMinutes:
             typeof data.prepTimeMinutes === "number" && Number.isFinite(data.prepTimeMinutes)

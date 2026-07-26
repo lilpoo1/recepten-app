@@ -14,6 +14,7 @@ describe("data normalization", () => {
                 ],
                 steps: ["Snijd", 3, null],
                 tags: ["snel", false],
+                mealTypes: ["lunch", "lunch", "breakfast", "other"],
                 baseServings: Number.POSITIVE_INFINITY,
                 prepTimeMinutes: Number.NaN,
                 cookingHistory: [10, "gisteren"],
@@ -30,6 +31,7 @@ describe("data normalization", () => {
             ingredients: [{ name: "Tomaat", quantityText: "2 stuks" }],
             steps: ["Snijd"],
             tags: ["snel"],
+            mealTypes: ["lunch", "other"],
             baseServings: 2,
             cookingHistory: [10],
             createdAt: 100,
@@ -44,8 +46,19 @@ describe("data normalization", () => {
         const recipe = normalizeRecipe(null, "household-1", "user-1");
         expect(recipe.title).toBe("Onbekend recept");
         expect(recipe.baseServings).toBe(2);
+        expect(recipe.mealTypes).toEqual(["dinner"]);
         expect(recipe.version).toBe(1);
         expect(recipe.createdAt).toBe(Date.now());
+    });
+
+    it("valt bij uitsluitend ongeldige recepttypen terug op diner", () => {
+        const recipe = normalizeRecipe(
+            { mealTypes: ["breakfast", null] },
+            "household-1",
+            "user-1"
+        );
+
+        expect(recipe.mealTypes).toEqual(["dinner"]);
     });
 
     it("normaliseert weekmenuvelden en maaltijdtypen", () => {

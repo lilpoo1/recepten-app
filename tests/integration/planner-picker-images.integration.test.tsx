@@ -18,6 +18,7 @@ const recipes: Recipe[] = [
         image: imageDataUrl,
         ingredients: [],
         baseServings: 2,
+        mealTypes: ["dinner", "lunch"],
         steps: [],
         prepTimeMinutes: 20,
         tags: [],
@@ -33,6 +34,7 @@ const recipes: Recipe[] = [
         title: "Soep",
         ingredients: [],
         baseServings: 4,
+        mealTypes: ["dinner", "other"],
         steps: [],
         tags: [],
         cookingHistory: [],
@@ -112,6 +114,8 @@ describe("weekmenu receptpicker", () => {
         expect(within(pastaButton).getByText("Geselecteerd")).toBeInTheDocument();
 
         await user.click(screen.getByRole("button", { name: "Lunch" }));
+        expect(screen.queryByRole("button", { name: /Soep/i })).not.toBeInTheDocument();
+        expect(pastaButton).toHaveAttribute("aria-pressed", "true");
         await user.clear(screen.getByLabelText("Personen"));
         await user.type(screen.getByLabelText("Personen"), "3");
         await user.click(screen.getByRole("button", { name: "Toevoegen" }));
@@ -125,6 +129,28 @@ describe("weekmenu receptpicker", () => {
             })
         );
         expect(screen.queryByRole("heading", { name: "Kies recept" })).not.toBeInTheDocument();
+    });
+
+    it("filtert op type en wist een selectie die niet bij het nieuwe type hoort", async () => {
+        const user = userEvent.setup();
+        render(<PlannerPage />);
+
+        await user.click(
+            screen.getAllByRole("button", { name: /Maaltijd kiezen voor/i })[0]
+        );
+        await user.click(screen.getByRole("button", { name: /Soep/i }));
+        expect(screen.getByLabelText("Personen")).toHaveValue(4);
+
+        await user.click(screen.getByRole("button", { name: "Lunch" }));
+
+        expect(screen.queryByRole("button", { name: /Soep/i })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Pasta/i })).toBeInTheDocument();
+        expect(screen.getByLabelText("Personen")).toHaveValue(null);
+        expect(screen.getByRole("button", { name: "Toevoegen" })).toBeDisabled();
+
+        await user.click(screen.getByRole("button", { name: "Anders" }));
+        expect(screen.getByRole("button", { name: /Soep/i })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /Pasta/i })).not.toBeInTheDocument();
     });
 
     it("valideert personen en reset de invoer wanneer de picker opnieuw opent", async () => {

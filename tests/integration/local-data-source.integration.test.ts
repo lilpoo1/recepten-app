@@ -8,6 +8,7 @@ const draft: RecipeDraft = {
     description: "",
     ingredients: [{ name: "Tomaat", quantityText: "2 stuks" }],
     baseServings: 2,
+    mealTypes: ["dinner", "lunch"],
     steps: ["Snijd"],
     tags: ["snel"],
     notes: "",
@@ -28,7 +29,12 @@ describe("LocalDataSource with IndexedDB", () => {
 
         await source.updateRecipe("household-1", "user-1", { ...original, title: "Nieuwe pasta" });
         const updated = (await source.loadHouseholdData("household-1")).recipes[0];
-        expect(updated).toMatchObject({ id, title: "Nieuwe pasta", version: 2 });
+        expect(updated).toMatchObject({
+            id,
+            title: "Nieuwe pasta",
+            mealTypes: ["dinner", "lunch"],
+            version: 2,
+        });
 
         const revisions = await source.loadRecipeRevisions("household-1", id);
         expect(revisions).toHaveLength(1);

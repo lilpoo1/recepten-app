@@ -5,12 +5,7 @@ import { addDays, format, startOfWeek } from "date-fns";
 import { nl } from "date-fns/locale";
 import { useStore } from "@/context/StoreContext";
 import type { MealType, Recipe } from "@/types";
-
-const MEAL_TYPE_LABELS: Record<MealType, string> = {
-    dinner: "Diner",
-    lunch: "Lunch",
-    other: "Anders",
-};
+import { MEAL_TYPE_LABELS } from "@/lib/meal-types";
 
 interface WeekMenuPickerProps {
     recipe: Recipe | null;
@@ -46,6 +41,9 @@ export default function WeekMenuPicker({
     const descriptionId = useId();
     const recipeId = recipe?.id;
     const recipeBaseServings = recipe?.baseServings;
+    const defaultMealType: MealType =
+        recipe?.mealTypes.includes("dinner") ? "dinner" : recipe?.mealTypes[0] ?? "dinner";
+    const recipeMealTypesKey = recipe?.mealTypes.join(",") ?? "";
 
     useEffect(() => {
         onCloseRef.current = onClose;
@@ -70,7 +68,7 @@ export default function WeekMenuPicker({
         }
 
         setCurrentDate(new Date());
-        setMealType("dinner");
+        setMealType(defaultMealType);
         setServingsInput(String(recipeBaseServings));
         setBusyDate(null);
         setError(null);
@@ -123,7 +121,7 @@ export default function WeekMenuPicker({
             document.documentElement.style.overflow = previousHtmlOverflow;
             previouslyFocusedElement?.focus();
         };
-    }, [open, recipeId, recipeBaseServings]);
+    }, [defaultMealType, open, recipeId, recipeBaseServings, recipeMealTypesKey]);
 
     const startDate = startOfWeek(currentDate, { weekStartsOn: 1 });
     const days = useMemo(
@@ -251,7 +249,7 @@ export default function WeekMenuPicker({
                                 Maaltijd
                             </span>
                             <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Maaltijdtype">
-                                {(Object.keys(MEAL_TYPE_LABELS) as MealType[]).map((type) => (
+                                {recipe.mealTypes.map((type) => (
                                     <button
                                         key={type}
                                         type="button"

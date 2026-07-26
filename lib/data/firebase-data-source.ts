@@ -64,6 +64,7 @@ function recipeDocumentFields(recipe: Recipe): DocumentData {
         image: recipe.image,
         ingredients: recipe.ingredients,
         baseServings: recipe.baseServings,
+        mealTypes: recipe.mealTypes,
         steps: recipe.steps,
         prepTimeMinutes: recipe.prepTimeMinutes,
         difficulty: recipe.difficulty,

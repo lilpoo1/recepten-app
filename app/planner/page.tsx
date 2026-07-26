@@ -6,6 +6,7 @@ import { addDays, format, isSameDay, startOfWeek } from "date-fns";
 import { nl } from "date-fns/locale";
 import { MealPlanEntry, MealType } from "@/types";
 import { useStore } from "@/context/StoreContext";
+import { MEAL_TYPES, MEAL_TYPE_LABELS } from "@/lib/meal-types";
 
 type RecipeSort = "last_eaten" | "time" | "name";
 
@@ -13,12 +14,6 @@ const MEAL_TYPE_ORDER: Record<MealType, number> = {
     lunch: 0,
     dinner: 1,
     other: 2,
-};
-
-const MEAL_TYPE_LABEL: Record<MealType, string> = {
-    dinner: "Diner",
-    lunch: "Lunch",
-    other: "Anders",
 };
 
 export default function PlannerPage() {
@@ -89,8 +84,10 @@ export default function PlannerPage() {
 
     const filteredRecipes = useMemo(() => {
         const query = pickerSearchTerm.trim().toLowerCase();
-        const subset = recipes.filter((recipe) =>
-            recipe.title.toLowerCase().includes(query)
+        const subset = recipes.filter(
+            (recipe) =>
+                recipe.mealTypes.includes(pickerMealType) &&
+                recipe.title.toLowerCase().includes(query)
         );
 
         return subset.sort((a, b) => {
@@ -106,7 +103,7 @@ export default function PlannerPage() {
                     return lastA - lastB;
             }
         });
-    }, [pickerSearchTerm, pickerSort, recipes]);
+    }, [pickerMealType, pickerSearchTerm, pickerSort, recipes]);
 
     const selectedPickerRecipe = pickerRecipeId
         ? recipesById.get(pickerRecipeId) ?? null
@@ -126,6 +123,16 @@ export default function PlannerPage() {
         setPickerRecipeId(recipe.id);
         setPickerServingsInput(String(recipe.baseServings));
         setPickerError(null);
+    };
+
+    const handlePickerMealTypeChange = (mealType: MealType) => {
+        setPickerMealType(mealType);
+        setPickerError(null);
+
+        if (selectedPickerRecipe && !selectedPickerRecipe.mealTypes.includes(mealType)) {
+            setPickerRecipeId(null);
+            setPickerServingsInput("");
+        }
     };
 
     const handleSavePickerRecipe = async () => {
@@ -209,7 +216,7 @@ export default function PlannerPage() {
             const destinationLabel = formatDayLabel(targetDate);
             const conflictTitle = getRecipeName(conflictingEntry.recipeId);
             const shouldReplace = confirm(
-                `Op ${destinationLabel} staat al '${conflictTitle}' voor ${MEAL_TYPE_LABEL[moveMeal.mealType]}. Wil je deze vervangen?`
+                `Op ${destinationLabel} staat al '${conflictTitle}' voor ${MEAL_TYPE_LABELS[moveMeal.mealType]}. Wil je deze vervangen?`
             );
             if (!shouldReplace) {
                 return;
@@ -326,7 +333,7 @@ export default function PlannerPage() {
                                                 <div className="flex flex-1 flex-col">
                                                     <span className="font-medium text-gray-800">{title}</span>
                                                     <span className="text-xs capitalize text-gray-500">
-                                                        {MEAL_TYPE_LABEL[meal.mealType]} | {meal.servings} pers.
+                                                        {MEAL_TYPE_LABELS[meal.mealType]} | {meal.servings} pers.
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-1 relative">
@@ -463,22 +470,19 @@ export default function PlannerPage() {
                                     Type
                                 </span>
                                 <div className="flex gap-1 overflow-x-auto pb-1 text-xs">
-                                    {(["dinner", "lunch", "other"] as MealType[]).map((mealType) => (
+                                    {MEAL_TYPES.map((mealType) => (
                                         <button
                                             key={mealType}
                                             type="button"
                                             aria-pressed={pickerMealType === mealType}
-                                            onClick={() => {
-                                                setPickerMealType(mealType);
-                                                setPickerError(null);
-                                            }}
+                                            onClick={() => handlePickerMealTypeChange(mealType)}
                                             disabled={pickerBusy}
                                             className={`min-h-9 whitespace-nowrap rounded-full border px-2.5 font-medium disabled:opacity-60 ${pickerMealType === mealType
                                                 ? "border-green-200 bg-green-100 text-green-700"
                                                 : "border-gray-200 bg-white text-gray-600"
                                                 }`}
                                         >
-                                            {MEAL_TYPE_LABEL[mealType]}
+                                            {MEAL_TYPE_LABELS[mealType]}
                                         </button>
                                     ))}
                                 </div>
@@ -535,7 +539,9 @@ export default function PlannerPage() {
                         <div className="mt-3 space-y-2 pr-1">
                             {filteredRecipes.length === 0 ? (
                                 <p className="py-4 text-center text-sm text-gray-500">
-                                    Geen recepten gevonden.
+                                    {pickerSearchTerm.trim()
+                                        ? `Geen ${MEAL_TYPE_LABELS[pickerMealType].toLowerCase()}recepten gevonden voor deze zoekopdracht.`
+                                        : `Geen recepten ingesteld als ${MEAL_TYPE_LABELS[pickerMealType]}.`}
                                 </p>
                             ) : (
                                 filteredRecipes.map((recipe) => {
@@ -614,7 +620,7 @@ export default function PlannerPage() {
                             </button>
                         </div>
                         <p className="mb-3 text-xs text-gray-500">
-                            {getRecipeName(moveMeal.recipeId)} | {MEAL_TYPE_LABEL[moveMeal.mealType]} | {moveMeal.servings} pers.
+                            {getRecipeName(moveMeal.recipeId)} | {MEAL_TYPE_LABELS[moveMeal.mealType]} | {moveMeal.servings} pers.
                         </p>
 
                         {moveError ? (
