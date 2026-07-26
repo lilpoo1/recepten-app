@@ -28,6 +28,8 @@ export default function PlannerPage() {
     const [pickerSearchTerm, setPickerSearchTerm] = useState("");
     const [pickerSort, setPickerSort] = useState<RecipeSort>("last_eaten");
     const [pickerMealType, setPickerMealType] = useState<MealType>("dinner");
+    const [pickerRecipeId, setPickerRecipeId] = useState<string | null>(null);
+    const [pickerServingsInput, setPickerServingsInput] = useState("");
     const [pickerBusy, setPickerBusy] = useState(false);
     const [pickerError, setPickerError] = useState<string | null>(null);
     const [activeMealMenuId, setActiveMealMenuId] = useState<string | null>(null);
@@ -70,6 +72,8 @@ export default function PlannerPage() {
         setPickerSearchTerm("");
         setPickerSort("last_eaten");
         setPickerMealType("dinner");
+        setPickerRecipeId(null);
+        setPickerServingsInput("");
         setPickerError(null);
         setMoveMeal(null);
         setActiveMealMenuId(null);
@@ -104,13 +108,34 @@ export default function PlannerPage() {
         });
     }, [pickerSearchTerm, pickerSort, recipes]);
 
-    const handleQuickAssign = async (recipeId: string) => {
-        if (!pickerDate) {
+    const selectedPickerRecipe = pickerRecipeId
+        ? recipesById.get(pickerRecipeId) ?? null
+        : null;
+    const parsedPickerServings = Number(pickerServingsInput);
+    const pickerServingsValid =
+        pickerServingsInput.trim() !== "" &&
+        Number.isInteger(parsedPickerServings) &&
+        parsedPickerServings >= 1;
+
+    const handleSelectPickerRecipe = (recipeId: string) => {
+        const recipe = recipesById.get(recipeId);
+        if (!recipe) {
             return;
         }
 
-        const recipe = recipesById.get(recipeId);
-        if (!recipe) {
+        setPickerRecipeId(recipe.id);
+        setPickerServingsInput(String(recipe.baseServings));
+        setPickerError(null);
+    };
+
+    const handleSavePickerRecipe = async () => {
+        if (!pickerDate || !selectedPickerRecipe) {
+            setPickerError("Selecteer eerst een recept.");
+            return;
+        }
+
+        if (!pickerServingsValid) {
+            setPickerError("Personen moet een geheel getal van minimaal 1 zijn.");
             return;
         }
 
@@ -119,8 +144,8 @@ export default function PlannerPage() {
         try {
             await addToMealPlan({
                 date: pickerDate,
-                recipeId: recipe.id,
-                servings: recipe.baseServings,
+                recipeId: selectedPickerRecipe.id,
+                servings: parsedPickerServings,
                 mealType: pickerMealType,
             });
             setPickerDate(null);
@@ -364,19 +389,32 @@ export default function PlannerPage() {
                         className="relative z-10 w-full max-h-[85vh] overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 shadow-xl"
                         onClick={(event) => event.stopPropagation()}
                     >
-                        <div className="mb-2 flex items-center justify-between">
-                            <h2 className="text-lg font-bold text-gray-900">Kies recept</h2>
-                            <button
-                                type="button"
-                                onClick={closeRecipePicker}
-                                className="rounded px-2 py-1 text-sm text-gray-500 hover:bg-gray-100"
-                            >
-                                Sluit
-                            </button>
+                        <div className="mb-2 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <h2 className="text-lg font-bold text-gray-900">Kies recept</h2>
+                                <p className="mt-0.5 text-xs text-gray-500">
+                                    Plan voor {formatDayLabel(pickerDate)}
+                                </p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={closeRecipePicker}
+                                    disabled={pickerBusy}
+                                    className="min-h-10 rounded-lg px-2 text-sm text-gray-500 hover:bg-gray-100 disabled:opacity-60"
+                                >
+                                    Sluit
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => void handleSavePickerRecipe()}
+                                    disabled={pickerBusy || !selectedPickerRecipe || !pickerServingsValid}
+                                    className="min-h-10 rounded-lg bg-green-600 px-3 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {pickerBusy ? "Opslaan..." : "Toevoegen"}
+                                </button>
+                            </div>
                         </div>
-                        <p className="mb-3 text-xs text-gray-500">
-                            Plan voor {formatDayLabel(pickerDate)}
-                        </p>
 
                         <input
                             type="text"
@@ -419,24 +457,77 @@ export default function PlannerPage() {
                             </button>
                         </div>
 
-                        <div className="mt-2 flex gap-2 overflow-x-auto pb-1 text-xs">
-                            {(["dinner", "lunch", "other"] as MealType[]).map((mealType) => (
-                                <button
-                                    key={mealType}
-                                    type="button"
-                                    onClick={() => setPickerMealType(mealType)}
-                                    className={`whitespace-nowrap rounded-full border px-3 py-1 font-medium ${pickerMealType === mealType
-                                        ? "border-green-200 bg-green-100 text-green-700"
-                                        : "border-gray-200 bg-white text-gray-600"
-                                        }`}
+                        <div className="mt-3 grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
+                            <div className="min-w-0">
+                                <span className="mb-1 block text-xs font-medium text-gray-600">
+                                    Type
+                                </span>
+                                <div className="flex gap-1 overflow-x-auto pb-1 text-xs">
+                                    {(["dinner", "lunch", "other"] as MealType[]).map((mealType) => (
+                                        <button
+                                            key={mealType}
+                                            type="button"
+                                            aria-pressed={pickerMealType === mealType}
+                                            onClick={() => {
+                                                setPickerMealType(mealType);
+                                                setPickerError(null);
+                                            }}
+                                            disabled={pickerBusy}
+                                            className={`min-h-9 whitespace-nowrap rounded-full border px-2.5 font-medium disabled:opacity-60 ${pickerMealType === mealType
+                                                ? "border-green-200 bg-green-100 text-green-700"
+                                                : "border-gray-200 bg-white text-gray-600"
+                                                }`}
+                                        >
+                                            {MEAL_TYPE_LABEL[mealType]}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <label
+                                    htmlFor="planner-picker-servings"
+                                    className="mb-1 block text-xs font-medium text-gray-600"
                                 >
-                                    {MEAL_TYPE_LABEL[mealType]}
-                                </button>
-                            ))}
+                                    Personen
+                                </label>
+                                <input
+                                    id="planner-picker-servings"
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    inputMode="numeric"
+                                    value={pickerServingsInput}
+                                    onChange={(event) => {
+                                        setPickerServingsInput(event.target.value);
+                                        setPickerError(null);
+                                    }}
+                                    disabled={pickerBusy || !selectedPickerRecipe}
+                                    className="min-h-9 w-full rounded-lg border border-gray-200 bg-gray-50 px-2 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                                />
+                            </div>
                         </div>
 
+                        <p className="mt-2 text-xs text-gray-500">
+                            {selectedPickerRecipe ? (
+                                <>
+                                    Geselecteerd:{" "}
+                                    <span className="font-semibold text-gray-700">
+                                        {selectedPickerRecipe.title}
+                                    </span>
+                                </>
+                            ) : (
+                                "Selecteer een recept om het aantal personen in te stellen."
+                            )}
+                        </p>
+
+                        {selectedPickerRecipe && !pickerServingsValid ? (
+                            <p role="alert" className="mt-2 text-xs text-red-600">
+                                Personen moet een geheel getal van minimaal 1 zijn.
+                            </p>
+                        ) : null}
+
                         {pickerError ? (
-                            <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                            <p role="alert" className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                                 {pickerError}
                             </p>
                         ) : null}
@@ -447,14 +538,22 @@ export default function PlannerPage() {
                                     Geen recepten gevonden.
                                 </p>
                             ) : (
-                                filteredRecipes.map((recipe) => (
-                                    <button
-                                        key={recipe.id}
-                                        type="button"
-                                        onClick={() => void handleQuickAssign(recipe.id)}
-                                        disabled={pickerBusy}
-                                        className="flex w-full items-stretch overflow-hidden rounded-lg border border-gray-200 bg-white text-left shadow-sm hover:bg-gray-50 disabled:opacity-60"
-                                    >
+                                filteredRecipes.map((recipe) => {
+                                    const isSelected = pickerRecipeId === recipe.id;
+
+                                    return (
+                                        <button
+                                            key={recipe.id}
+                                            type="button"
+                                            aria-pressed={isSelected}
+                                            onClick={() => handleSelectPickerRecipe(recipe.id)}
+                                            disabled={pickerBusy}
+                                            className={`flex w-full items-stretch overflow-hidden rounded-lg border text-left shadow-sm disabled:opacity-60 ${
+                                                isSelected
+                                                    ? "border-green-400 bg-green-50"
+                                                    : "border-gray-200 bg-white hover:bg-gray-50"
+                                            }`}
+                                        >
                                         {recipe.image ? (
                                             <span className="relative min-h-14 w-28 shrink-0 self-stretch overflow-hidden bg-gray-100">
                                                 <Image
@@ -482,12 +581,15 @@ export default function PlannerPage() {
                                                     Tijd {recipe.prepTimeMinutes ?? "-"}m | Basis {recipe.baseServings} pers.
                                                 </p>
                                             </div>
-                                            <span className="shrink-0 text-xs font-semibold text-green-700">
-                                                {pickerBusy ? "Opslaan..." : "Kies"}
+                                            <span className={`shrink-0 text-xs font-semibold ${
+                                                isSelected ? "text-green-800" : "text-green-700"
+                                            }`}>
+                                                {isSelected ? "Geselecteerd" : "Kies"}
                                             </span>
                                         </div>
                                     </button>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     </div>

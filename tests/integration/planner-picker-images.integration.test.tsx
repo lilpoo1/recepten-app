@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
+import { format, startOfWeek } from "date-fns";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import PlannerPage from "@/app/planner/page";
 import type { Recipe } from "@/types";
@@ -59,6 +60,7 @@ vi.mock("@/context/StoreContext", () => ({
 
 beforeEach(() => {
     vi.clearAllMocks();
+    mocks.addToMealPlan.mockResolvedValue(undefined);
 });
 
 describe("weekmenu receptpicker", () => {
@@ -92,5 +94,83 @@ describe("weekmenu receptpicker", () => {
             "px-3",
             "py-2"
         );
+    });
+
+    it("selecteert eerst en bewaart daarna type en aangepaste personen", async () => {
+        const user = userEvent.setup();
+        render(<PlannerPage />);
+
+        await user.click(
+            screen.getAllByRole("button", { name: /Maaltijd kiezen voor/i })[0]
+        );
+        const pastaButton = screen.getByRole("button", { name: /Pasta/i });
+        await user.click(pastaButton);
+
+        expect(mocks.addToMealPlan).not.toHaveBeenCalled();
+        expect(screen.getByLabelText("Personen")).toHaveValue(2);
+        expect(pastaButton).toHaveAttribute("aria-pressed", "true");
+        expect(within(pastaButton).getByText("Geselecteerd")).toBeInTheDocument();
+
+        await user.click(screen.getByRole("button", { name: "Lunch" }));
+        await user.clear(screen.getByLabelText("Personen"));
+        await user.type(screen.getByLabelText("Personen"), "3");
+        await user.click(screen.getByRole("button", { name: "Toevoegen" }));
+
+        await waitFor(() =>
+            expect(mocks.addToMealPlan).toHaveBeenCalledWith({
+                date: format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd"),
+                recipeId: "recipe-1",
+                servings: 3,
+                mealType: "lunch",
+            })
+        );
+        expect(screen.queryByRole("heading", { name: "Kies recept" })).not.toBeInTheDocument();
+    });
+
+    it("valideert personen en reset de invoer wanneer de picker opnieuw opent", async () => {
+        const user = userEvent.setup();
+        render(<PlannerPage />);
+
+        await user.click(
+            screen.getAllByRole("button", { name: /Maaltijd kiezen voor/i })[0]
+        );
+        await user.click(screen.getByRole("button", { name: /Soep/i }));
+        expect(screen.getByLabelText("Personen")).toHaveValue(4);
+
+        await user.clear(screen.getByLabelText("Personen"));
+        expect(screen.getByRole("alert")).toHaveTextContent(/minimaal 1/i);
+        expect(screen.getByRole("button", { name: "Toevoegen" })).toBeDisabled();
+
+        await user.click(screen.getByRole("button", { name: "Sluit" }));
+        await user.click(
+            screen.getAllByRole("button", { name: /Maaltijd kiezen voor/i })[0]
+        );
+
+        expect(screen.getByLabelText("Personen")).toHaveValue(null);
+        expect(screen.getByLabelText("Personen")).toBeDisabled();
+        expect(screen.getByRole("button", { name: "Diner" })).toHaveAttribute(
+            "aria-pressed",
+            "true"
+        );
+        expect(screen.getByRole("button", { name: "Toevoegen" })).toBeDisabled();
+        expect(screen.queryByText("Geselecteerd")).not.toBeInTheDocument();
+    });
+
+    it("behoudt selectie en personen wanneer opslaan mislukt", async () => {
+        mocks.addToMealPlan.mockRejectedValueOnce(new Error("Netwerkfout"));
+        const user = userEvent.setup();
+        render(<PlannerPage />);
+
+        await user.click(
+            screen.getAllByRole("button", { name: /Maaltijd kiezen voor/i })[0]
+        );
+        const pastaButton = screen.getByRole("button", { name: /Pasta/i });
+        await user.click(pastaButton);
+        await user.click(screen.getByRole("button", { name: "Toevoegen" }));
+
+        expect(await screen.findByRole("alert")).toHaveTextContent("Netwerkfout");
+        expect(screen.getByLabelText("Personen")).toHaveValue(2);
+        expect(pastaButton).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByRole("heading", { name: "Kies recept" })).toBeInTheDocument();
     });
 });
