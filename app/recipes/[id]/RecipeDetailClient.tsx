@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useStore } from "@/context/StoreContext";
 import { composeQuantityTextFromLegacy, formatScaledQuantityText } from "@/lib/utils/quantity";
+import WeekMenuPicker from "@/components/WeekMenuPicker";
 
 export default function RecipeDetailClient({ id }: { id: string }) {
     const { getRecipeById, deleteRecipe } = useStore();
     const router = useRouter();
     const recipe = getRecipeById(id);
     const [servings, setServings] = useState<number>(recipe?.baseServings || 2);
+    const [weekMenuOpen, setWeekMenuOpen] = useState(false);
 
     if (!recipe) {
         return (
@@ -94,15 +96,27 @@ export default function RecipeDetailClient({ id }: { id: string }) {
             </div>
 
             <div className="relative -mt-6 rounded-t-3xl bg-white p-4">
-                <div className="mb-2 flex items-start justify-between">
-                    <h1 className="flex-1 text-2xl font-bold text-gray-900">{recipe.title}</h1>
-                    <div className="rounded bg-yellow-100 px-2 py-1 text-sm font-medium text-yellow-800">
-                        {recipe.difficulty ?? "-"} / 5
+                <div className="mb-2 flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                        <h1 className="text-2xl font-bold text-gray-900">{recipe.title}</h1>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-500">
+                            <span>Tijd {recipe.prepTimeMinutes ?? "-"} min</span>
+                            <span className="rounded bg-yellow-100 px-2 py-1 font-medium text-yellow-800">
+                                Moeilijkheid {recipe.difficulty ?? "-"} / 5
+                            </span>
+                        </div>
                     </div>
+                    <button
+                        type="button"
+                        onClick={() => setWeekMenuOpen(true)}
+                        aria-label={`${recipe.title} aan weekmenu toevoegen`}
+                        className="inline-flex min-h-11 shrink-0 items-center rounded-lg border border-green-600 bg-white px-3 text-xs font-bold text-green-700 transition hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                    >
+                        + Weekmenu
+                    </button>
                 </div>
 
-                <div className="mb-4 flex items-center space-x-4 text-sm text-gray-500">
-                    <span>Tijd {recipe.prepTimeMinutes ?? "-"} min</span>
+                <div className="mb-4 mt-3 flex items-center space-x-4 text-sm text-gray-500">
                     <span>
                         Laatst gegeten:{" "}
                         {recipe.cookingHistory.length > 0
@@ -175,6 +189,12 @@ export default function RecipeDetailClient({ id }: { id: string }) {
                     )}
                 </div>
             </div>
+
+            <WeekMenuPicker
+                recipe={recipe}
+                open={weekMenuOpen}
+                onClose={() => setWeekMenuOpen(false)}
+            />
         </div>
     );
 }

@@ -5,12 +5,14 @@ import { useState } from "react";
 import { useStore } from "@/context/StoreContext";
 import RecipeCard from "@/components/RecipeCard";
 import SortControls from "@/components/SortControls";
-import { SortOption } from "@/types";
+import WeekMenuPicker from "@/components/WeekMenuPicker";
+import { Recipe, SortOption } from "@/types";
 
 export default function RecipesPage() {
     const { recipes } = useStore();
     const [searchTerm, setSearchTerm] = useState("");
     const [sortOption, setSortOption] = useState<SortOption>("name");
+    const [weekMenuRecipe, setWeekMenuRecipe] = useState<Recipe | null>(null);
 
     const filteredRecipes = recipes
         .filter((recipe) =>
@@ -62,7 +64,11 @@ export default function RecipesPage() {
                 <div className="grid grid-cols-1 gap-4">
                     {filteredRecipes.length > 0 ? (
                         filteredRecipes.map((recipe) => (
-                            <RecipeCard key={recipe.id} recipe={recipe} />
+                            <RecipeCard
+                                key={recipe.id}
+                                recipe={recipe}
+                                onAddToWeekMenu={setWeekMenuRecipe}
+                            />
                         ))
                     ) : (
                         <div className="rounded-lg border border-gray-100 bg-white p-6 py-12 text-center shadow">
@@ -85,6 +91,12 @@ export default function RecipesPage() {
                     </Link>
                 </div>
             </div>
+
+            <WeekMenuPicker
+                recipe={weekMenuRecipe}
+                open={Boolean(weekMenuRecipe)}
+                onClose={() => setWeekMenuRecipe(null)}
+            />
         </>
     );
 }

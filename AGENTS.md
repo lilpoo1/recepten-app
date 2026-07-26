@@ -28,3 +28,8 @@ Use Vitest; use Testing Library and `user-event` for React behavior, `fake-index
 ## Commits, Pull Requests & Security
 
 Use short imperative commits, for example `Improve Bring exports`. Pull requests should describe behavior, tests, Firebase or migration impact, linked issues, and UI screenshots when relevant. Never commit credentials or local environment files. Treat Firestore rules, backup scripts, and restore tooling as security-sensitive.
+
+## Deployments & Rollbacks
+
+Every deploy, publish, or go-live action must preserve an easy, verified rollback path. Before changing production, record the current live version, create and preserve an immutable identifier for the new version (such as a Git commit and versioned platform rollout), and confirm that the hosting platform retains the previous release. After deployment, report the exact deployed version and concise rollback steps. Never replace production with a version that cannot be reverted or rebuilt from a preserved source revision.
+After completing an update, automatically publish it when all required tests and checks pass, unless the user explicitly asks for local-only work or no deployment. Treat the live app as the final validation environment, but never skip the required pre-deployment checks, immutable versioning, post-deployment smoke check, or rollback safeguards.
