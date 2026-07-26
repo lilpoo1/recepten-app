@@ -6,20 +6,9 @@ import { addDays, format, isSameDay, startOfWeek } from "date-fns";
 import { nl } from "date-fns/locale";
 import { MealPlanEntry, MealType } from "@/types";
 import { useStore } from "@/context/StoreContext";
+import { MEAL_TYPE_LABEL, MEAL_TYPE_ORDER } from "@/lib/meal-plan";
 
 type RecipeSort = "last_eaten" | "time" | "name";
-
-const MEAL_TYPE_ORDER: Record<MealType, number> = {
-    lunch: 0,
-    dinner: 1,
-    other: 2,
-};
-
-const MEAL_TYPE_LABEL: Record<MealType, string> = {
-    dinner: "Diner",
-    lunch: "Lunch",
-    other: "Anders",
-};
 
 export default function PlannerPage() {
     const { mealPlan, recipes, removeFromMealPlan, markAsCooked, addToMealPlan } = useStore();

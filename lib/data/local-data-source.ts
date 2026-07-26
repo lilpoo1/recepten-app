@@ -23,15 +23,32 @@ const MEAL_PLAN_KEY = "mealPlan";
 const REVISION_RETENTION_MS = 98 * 24 * 60 * 60 * 1000;
 const revisionKey = (recipeId: string) => `local:recipe-revisions:${recipeId}`;
 
-async function readArray(key: string, householdId: string, userId: string): Promise<unknown[]> {
-    if (key === RECIPES_KEY) {
-        return readLocalRecipes(householdId, userId);
-    }
-    return readLocalMealPlan(householdId, userId);
+async function readRecipes(
+    householdId: string,
+    userId: string
+): Promise<Recipe[]> {
+    const recipes = await readLocalRecipes(householdId, userId);
+    return recipes.map((recipe) =>
+        normalizeRecipe(recipe, householdId, userId)
+    );
 }
 
-async function writeArray(key: string, data: unknown[]) {
-    await writeLocalValue(key, data);
+async function writeRecipes(recipes: Recipe[]): Promise<void> {
+    await writeLocalValue(RECIPES_KEY, recipes);
+}
+
+async function readMealPlan(
+    householdId: string,
+    userId: string
+): Promise<MealPlanEntry[]> {
+    const entries = await readLocalMealPlan(householdId, userId);
+    return entries.map((entry) =>
+        normalizeMealPlanEntry(entry, householdId, userId)
+    );
+}
+
+async function writeMealPlan(entries: MealPlanEntry[]): Promise<void> {
+    await writeLocalValue(MEAL_PLAN_KEY, entries);
 }
 
 async function saveRevision(
@@ -64,12 +81,8 @@ export class LocalDataSource implements DataSource {
 
     async loadHouseholdData(householdId: string): Promise<HouseholdSnapshot> {
         const fallbackUser = "local-user";
-        const recipes = (await readArray(RECIPES_KEY, householdId, fallbackUser)).map((item) =>
-            normalizeRecipe(item, householdId, fallbackUser)
-        );
-        const mealPlan = (await readArray(MEAL_PLAN_KEY, householdId, fallbackUser)).map((item) =>
-            normalizeMealPlanEntry(item, householdId, fallbackUser)
-        );
+        const recipes = await readRecipes(householdId, fallbackUser);
+        const mealPlan = await readMealPlan(householdId, fallbackUser);
 
         return { recipes: recipes.filter((recipe) => !recipe.deletedAt), mealPlan };
     }
@@ -85,9 +98,7 @@ export class LocalDataSource implements DataSource {
 
     async addRecipe(householdId: string, userId: string, draft: RecipeDraft): Promise<string> {
         const now = Date.now();
-        const existing = (await readArray(RECIPES_KEY, householdId, userId)).map((item) =>
-            normalizeRecipe(item, householdId, userId)
-        );
+        const existing = await readRecipes(householdId, userId);
         const id = createId();
         const recipe: Recipe = {
             ...draft,
@@ -99,14 +110,12 @@ export class LocalDataSource implements DataSource {
             updatedAt: now,
             version: 1,
         };
-        await writeArray(RECIPES_KEY, [...existing, recipe]);
+        await writeRecipes([...existing, recipe]);
         return id;
     }
 
     async updateRecipe(householdId: string, userId: string, recipe: Recipe): Promise<void> {
-        const existing = (await readArray(RECIPES_KEY, householdId, userId)).map((item) =>
-            normalizeRecipe(item, householdId, userId)
-        );
+        const existing = await readRecipes(householdId, userId);
         const current = existing.find((item) => item.id === recipe.id);
         if (!current) {
             throw new Error("Recept bestaat niet meer.");
@@ -115,8 +124,7 @@ export class LocalDataSource implements DataSource {
             throw new Error("Dit recept is intussen gewijzigd. Vernieuw en probeer opnieuw.");
         }
         const revision = await saveRevision(current, userId, "update");
-        await writeArray(
-            RECIPES_KEY,
+        await writeRecipes(
             existing.map((item) =>
                 item.id === recipe.id
                     ? {
@@ -131,17 +139,14 @@ export class LocalDataSource implements DataSource {
     }
 
     async deleteRecipe(householdId: string, userId: string, recipeId: string): Promise<void> {
-        const recipes = (await readArray(RECIPES_KEY, householdId, "local-user")).map((item) =>
-            normalizeRecipe(item, householdId, "local-user")
-        );
+        const recipes = await readRecipes(householdId, "local-user");
         const current = recipes.find((item) => item.id === recipeId);
         if (!current || current.deletedAt) {
             return;
         }
         const now = Date.now();
         const revision = await saveRevision(current, userId, "delete");
-        await writeArray(
-            RECIPES_KEY,
+        await writeRecipes(
             recipes.map((item) =>
                 item.id === recipeId
                     ? {
@@ -158,17 +163,14 @@ export class LocalDataSource implements DataSource {
     }
 
     async restoreRecipe(householdId: string, userId: string, recipeId: string): Promise<void> {
-        const recipes = (await readArray(RECIPES_KEY, householdId, userId)).map((item) =>
-            normalizeRecipe(item, householdId, userId)
-        );
+        const recipes = await readRecipes(householdId, userId);
         const current = recipes.find((item) => item.id === recipeId);
         if (!current || !current.deletedAt) {
             return;
         }
         const revision = await saveRevision(current, userId, "restore");
         const now = Date.now();
-        await writeArray(
-            RECIPES_KEY,
+        await writeRecipes(
             recipes.map((item) => {
                 if (item.id !== recipeId) {
                     return item;
@@ -187,9 +189,7 @@ export class LocalDataSource implements DataSource {
     }
 
     async loadDeletedRecipes(householdId: string): Promise<Recipe[]> {
-        const recipes = (await readArray(RECIPES_KEY, householdId, "local-user")).map((item) =>
-            normalizeRecipe(item, householdId, "local-user")
-        );
+        const recipes = await readRecipes(householdId, "local-user");
         return recipes
             .filter((recipe) => Boolean(recipe.deletedAt))
             .sort((left, right) => (right.deletedAt ?? 0) - (left.deletedAt ?? 0));
@@ -212,9 +212,7 @@ export class LocalDataSource implements DataSource {
         recipeId: string,
         revisionId: string
     ): Promise<void> {
-        const recipes = (await readArray(RECIPES_KEY, householdId, userId)).map((item) =>
-            normalizeRecipe(item, householdId, userId)
-        );
+        const recipes = await readRecipes(householdId, userId);
         const current = recipes.find((item) => item.id === recipeId);
         const target = (await this.loadRecipeRevisions(householdId, recipeId)).find(
             (revision) => revision.id === revisionId
@@ -234,16 +232,13 @@ export class LocalDataSource implements DataSource {
         };
         delete restored.deletedAt;
         delete restored.deletedBy;
-        await writeArray(
-            RECIPES_KEY,
+        await writeRecipes(
             recipes.map((item) => (item.id === recipeId ? restored : item))
         );
     }
 
     async markAsCooked(householdId: string, userId: string, recipeId: string): Promise<void> {
-        const recipes = (await readArray(RECIPES_KEY, householdId, "local-user")).map((item) =>
-            normalizeRecipe(item, householdId, "local-user")
-        );
+        const recipes = await readRecipes(householdId, "local-user");
         const current = recipes.find((item) => item.id === recipeId);
         if (!current) {
             throw new Error("Recept bestaat niet meer.");
@@ -251,8 +246,7 @@ export class LocalDataSource implements DataSource {
         const revision = await saveRevision(current, userId, "mark_cooked");
         const now = Date.now();
 
-        await writeArray(
-            RECIPES_KEY,
+        await writeRecipes(
             recipes.map((recipe) =>
                 recipe.id === recipeId
                     ? {
@@ -272,9 +266,7 @@ export class LocalDataSource implements DataSource {
         userId: string,
         draft: MealPlanDraft
     ): Promise<void> {
-        const entries = (await readArray(MEAL_PLAN_KEY, householdId, userId)).map((item) =>
-            normalizeMealPlanEntry(item, householdId, userId)
-        );
+        const entries = await readMealPlan(householdId, userId);
         const now = Date.now();
 
         const withoutSlot = entries.filter(
@@ -294,7 +286,7 @@ export class LocalDataSource implements DataSource {
             version: 1,
         };
 
-        await writeArray(MEAL_PLAN_KEY, [...withoutSlot, nextEntry]);
+        await writeMealPlan([...withoutSlot, nextEntry]);
     }
 
     async removeMealPlanEntry(
@@ -303,11 +295,8 @@ export class LocalDataSource implements DataSource {
         recipeId: string,
         mealType: MealPlanEntry["mealType"]
     ): Promise<void> {
-        const entries = (await readArray(MEAL_PLAN_KEY, householdId, "local-user")).map((item) =>
-            normalizeMealPlanEntry(item, householdId, "local-user")
-        );
-        await writeArray(
-            MEAL_PLAN_KEY,
+        const entries = await readMealPlan(householdId, "local-user");
+        await writeMealPlan(
             entries.filter(
                 (entry) =>
                     !(entry.date === date && entry.recipeId === recipeId && entry.mealType === mealType)

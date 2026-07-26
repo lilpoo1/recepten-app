@@ -3,40 +3,12 @@
 import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { endOfWeek, isWithinInterval, startOfWeek } from "date-fns";
-import { Ingredient } from "@/types";
 import { useStore } from "@/context/StoreContext";
 import {
-    composeQuantityTextFromLegacy,
-    parseQuantityText,
-    toHumanQuantity,
-} from "@/lib/utils/quantity";
-
-interface ShoppingListItem {
-    name: string;
-    amount?: number;
-    unit?: string;
-    quantityText?: string;
-    isNumeric: boolean;
-}
-
-function getIngredientQuantityText(ingredient: Ingredient): string {
-    if (typeof ingredient.quantityText === "string" && ingredient.quantityText.trim()) {
-        return ingredient.quantityText.trim();
-    }
-
-    const legacy = ingredient as Ingredient & { amount?: number; unit?: string };
-    return composeQuantityTextFromLegacy(
-        typeof legacy.amount === "number" ? legacy.amount : 0,
-        typeof legacy.unit === "string" ? legacy.unit : ""
-    );
-}
-
-function toBringQuantityText(item: ShoppingListItem): string {
-    if (item.isNumeric && typeof item.amount === "number") {
-        return toHumanQuantity(item.amount, item.unit ?? "").displayWithUnit.trim();
-    }
-    return (item.quantityText ?? "").trim();
-}
+    aggregateBringItems,
+    buildMealGroups,
+    toBringQuantityText,
+} from "@/lib/shopping-list";
 
 function formatDate(value: number) {
     return new Date(value).toLocaleString("nl-NL", {
@@ -70,51 +42,13 @@ function ExportContent() {
     const endDate = useMemo(() => endOfWeek(startDate, { weekStartsOn: 1 }), [startDate]);
 
     const shoppingList = useMemo(() => {
-        const items: Record<string, ShoppingListItem> = {};
-        mealPlan.forEach((entry) => {
-            const entryDate = new Date(entry.date);
-            if (!isWithinInterval(entryDate, { start: startDate, end: endDate })) {
-                return;
-            }
-
-            const recipe = recipes.find((item) => item.id === entry.recipeId);
-            if (!recipe) {
-                return;
-            }
-
-            const scaling = entry.servings / recipe.baseServings;
-            recipe.ingredients.forEach((ingredient) => {
-                const quantityText = getIngredientQuantityText(ingredient);
-                const parsed = parseQuantityText(quantityText);
-                if (parsed.isParseable && typeof parsed.amount === "number") {
-                    const normalizedUnit = (parsed.unit ?? "").trim().toLowerCase();
-                    const key = `${ingredient.name.toLowerCase().trim()}::numeric::${normalizedUnit}`;
-                    const existing = items[key];
-                    if (existing && typeof existing.amount === "number") {
-                        existing.amount += parsed.amount * scaling;
-                    } else {
-                        items[key] = {
-                            name: ingredient.name,
-                            amount: parsed.amount * scaling,
-                            unit: parsed.unit ?? "",
-                            isNumeric: true,
-                        };
-                    }
-                    return;
-                }
-
-                const normalizedText = quantityText.toLowerCase();
-                const key = `${ingredient.name.toLowerCase().trim()}::text::${normalizedText}`;
-                if (!items[key]) {
-                    items[key] = {
-                        name: ingredient.name,
-                        quantityText,
-                        isNumeric: false,
-                    };
-                }
-            });
-        });
-        return Object.values(items);
+        const mealGroups = buildMealGroups(mealPlan, recipes, (entry) =>
+            isWithinInterval(new Date(entry.date), {
+                start: startDate,
+                end: endDate,
+            })
+        );
+        return aggregateBringItems(mealGroups);
     }, [endDate, mealPlan, recipes, startDate]);
 
     const exportText = useMemo(

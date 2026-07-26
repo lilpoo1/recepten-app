@@ -5,13 +5,21 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { addDays, endOfWeek, format, isWithinInterval, startOfWeek } from "date-fns";
 import { nl } from "date-fns/locale";
-import { BringShareItem, Ingredient, MealPlanEntry, MealType } from "@/types";
 import { useStore } from "@/context/StoreContext";
+import { MEAL_TYPE_LABEL } from "@/lib/meal-plan";
 import {
-    composeQuantityTextFromLegacy,
-    parseQuantityText,
-    toHumanQuantity,
-} from "@/lib/utils/quantity";
+    aggregateBringItems,
+    buildMealGroups,
+    buildShoppingPreferenceStorageKey,
+    getBringSelectionStats,
+    MealGroup,
+    MealIngredient,
+    parseShoppingPreferences,
+    serializeShoppingPreferences,
+    ShoppingPreferenceStoragePayload,
+    toBringQuantityText,
+} from "@/lib/shopping-list";
+import { toHumanQuantity } from "@/lib/utils/quantity";
 import {
     persistShoppingPreferences,
     readShoppingPreferences,
@@ -19,88 +27,6 @@ import {
 } from "@/lib/storage/browser-storage";
 
 const BRING_DEEPLINK_URL = "https://api.getbring.com/rest/bringrecipes/deeplink";
-// Keep legacy storage key to preserve existing week preferences.
-const BRING_PREFERENCE_STORAGE_PREFIX = "shopping:discarded:v2";
-
-const MEAL_TYPE_ORDER: Record<MealType, number> = {
-    lunch: 0,
-    dinner: 1,
-    other: 2,
-};
-
-const MEAL_TYPE_LABEL: Record<MealType, string> = {
-    lunch: "Lunch",
-    dinner: "Diner",
-    other: "Anders",
-};
-
-interface MealIngredient {
-    id: string;
-    normalizedKey: string;
-    name: string;
-    quantityText: string;
-    unit?: string;
-    amount?: number;
-    isNumeric: boolean;
-}
-
-interface MealGroup {
-    id: string;
-    date: string;
-    mealType: MealType;
-    recipeId: string;
-    title: string;
-    servings: number;
-    ingredients: MealIngredient[];
-}
-
-interface BringPreferenceStoragePayload {
-    notToBringMealIds?: string[];
-    notToBringIngredientIds?: string[];
-    collapsedMealIds?: string[];
-    discardedMealIds?: string[];
-    discardedIngredientIds?: string[];
-}
-
-function getNormalizedIngredientKey(name: string, mode: "numeric" | "text", value: string): string {
-    return `${name.toLowerCase().trim()}::${mode}::${value.toLowerCase().trim()}`;
-}
-
-function getMealGroupId(entry: Pick<MealPlanEntry, "date" | "mealType" | "recipeId">): string {
-    return `${entry.date}::${entry.mealType}::${entry.recipeId}`;
-}
-
-function getMealIngredientId(groupId: string, normalizedKey: string): string {
-    return `${groupId}::${normalizedKey}`;
-}
-
-function buildBringPreferenceStorageKey(householdId: string, weekStartKey: string): string {
-    return `${BRING_PREFERENCE_STORAGE_PREFIX}:${householdId}:${weekStartKey}`;
-}
-
-function getIngredientQuantityText(ingredient: Ingredient): string {
-    if (typeof ingredient.quantityText === "string" && ingredient.quantityText.trim()) {
-        return ingredient.quantityText.trim();
-    }
-
-    const legacy = ingredient as Ingredient & { amount?: number; unit?: string };
-    return composeQuantityTextFromLegacy(
-        typeof legacy.amount === "number" ? legacy.amount : 0,
-        typeof legacy.unit === "string" ? legacy.unit : ""
-    );
-}
-
-function toBringQuantityText(item: BringShareItem): string {
-    if (typeof item.quantityText === "string" && item.quantityText.trim()) {
-        return item.quantityText.trim();
-    }
-
-    if (typeof item.amount === "number") {
-        return toHumanQuantity(item.amount, item.unit ?? "").displayWithUnit.trim();
-    }
-
-    return "";
-}
 
 function toBringDeeplink(url: string): string {
     return `${BRING_DEEPLINK_URL}?url=${encodeURIComponent(
@@ -121,125 +47,31 @@ export default function ShoppingListPage() {
     const endDate = endOfWeek(startDate, { weekStartsOn: 1 });
     const householdKey = household?.id ?? "local";
     const weekStartKey = format(startDate, "yyyy-MM-dd");
-    const bringPreferenceStorageKey = buildBringPreferenceStorageKey(householdKey, weekStartKey);
+    const bringPreferenceStorageKey = buildShoppingPreferenceStorageKey(
+        householdKey,
+        weekStartKey
+    );
 
-    const mealGroups = useMemo(() => {
-        const recipesById = new Map(recipes.map((recipe) => [recipe.id, recipe]));
-        const groups: MealGroup[] = [];
+    const mealGroups = useMemo(
+        () =>
+            buildMealGroups(mealPlan, recipes, (entry) =>
+                isWithinInterval(new Date(entry.date), {
+                    start: startDate,
+                    end: endDate,
+                })
+            ),
+        [endDate, mealPlan, recipes, startDate]
+    );
 
-        mealPlan.forEach((entry) => {
-            const entryDate = new Date(entry.date);
-            if (!isWithinInterval(entryDate, { start: startDate, end: endDate })) {
-                return;
-            }
-
-            const recipe = recipesById.get(entry.recipeId);
-            if (!recipe) {
-                return;
-            }
-
-            const groupId = getMealGroupId(entry);
-            const scaling = entry.servings / recipe.baseServings;
-            const ingredientMap = new Map<string, MealIngredient>();
-
-            recipe.ingredients.forEach((ingredient) => {
-                const quantityText = getIngredientQuantityText(ingredient);
-                const parsedQuantity = parseQuantityText(quantityText);
-
-                if (parsedQuantity.isParseable && typeof parsedQuantity.amount === "number") {
-                    const unit = parsedQuantity.unit ?? "";
-                    const normalizedKey = getNormalizedIngredientKey(ingredient.name, "numeric", unit);
-                    const existing = ingredientMap.get(normalizedKey);
-                    const scaledAmount = parsedQuantity.amount * scaling;
-
-                    if (existing && typeof existing.amount === "number") {
-                        existing.amount += scaledAmount;
-                        return;
-                    }
-
-                    ingredientMap.set(normalizedKey, {
-                        id: getMealIngredientId(groupId, normalizedKey),
-                        normalizedKey,
-                        name: ingredient.name,
-                        quantityText: "",
-                        unit,
-                        amount: scaledAmount,
-                        isNumeric: true,
-                    });
-                    return;
-                }
-
-                const normalizedKey = getNormalizedIngredientKey(ingredient.name, "text", quantityText);
-                const existing = ingredientMap.get(normalizedKey);
-                if (existing) {
-                    return;
-                }
-
-                ingredientMap.set(normalizedKey, {
-                    id: getMealIngredientId(groupId, normalizedKey),
-                    normalizedKey,
-                    name: ingredient.name,
-                    quantityText,
-                    isNumeric: false,
-                });
-            });
-
-            const ingredients = Array.from(ingredientMap.values()).sort((a, b) =>
-                a.name.localeCompare(b.name, "nl-NL")
-            );
-
-            groups.push({
-                id: groupId,
-                date: entry.date,
-                mealType: entry.mealType,
-                recipeId: entry.recipeId,
-                title: recipe.title,
-                servings: entry.servings,
-                ingredients,
-            });
-        });
-
-        return groups.sort((a, b) => {
-            if (a.date !== b.date) {
-                return a.date.localeCompare(b.date);
-            }
-
-            const mealTypeDiff = MEAL_TYPE_ORDER[a.mealType] - MEAL_TYPE_ORDER[b.mealType];
-            if (mealTypeDiff !== 0) {
-                return mealTypeDiff;
-            }
-
-            return a.title.localeCompare(b.title, "nl-NL");
-        });
-    }, [endDate, mealPlan, recipes, startDate]);
-
-    const mealStats = useMemo(() => {
-        const stats = new Map<string, { toBring: number; notToBring: number; allNotToBring: boolean }>();
-
-        mealGroups.forEach((group) => {
-            let toBring = 0;
-            let notToBring = 0;
-
-            group.ingredients.forEach((ingredient) => {
-                if (
-                    notToBringMealIds.has(group.id) ||
-                    notToBringIngredientIds.has(ingredient.id)
-                ) {
-                    notToBring += 1;
-                } else {
-                    toBring += 1;
-                }
-            });
-
-            stats.set(group.id, {
-                toBring,
-                notToBring,
-                allNotToBring: group.ingredients.length > 0 && toBring === 0,
-            });
-        });
-
-        return stats;
-    }, [mealGroups, notToBringIngredientIds, notToBringMealIds]);
+    const selectionStats = useMemo(
+        () =>
+            getBringSelectionStats(
+                mealGroups,
+                notToBringMealIds,
+                notToBringIngredientIds
+            ),
+        [mealGroups, notToBringIngredientIds, notToBringMealIds]
+    );
 
     useEffect(() => {
         if (typeof window === "undefined") {
@@ -252,37 +84,19 @@ export default function ShoppingListPage() {
 
         const loadPreferences = async () => {
             try {
-                const parsed = await readShoppingPreferences<BringPreferenceStoragePayload>(
+                const parsed = await readShoppingPreferences<ShoppingPreferenceStoragePayload>(
                     bringPreferenceStorageKey
                 );
                 if (!active) {
                     return;
                 }
 
-                if (!parsed) {
-                    setNotToBringMealIds(new Set());
-                    setNotToBringIngredientIds(new Set());
-                    setCollapsedMealIds(new Set());
-                    return;
-                }
-
-                const mealIds = Array.isArray(parsed.notToBringMealIds)
-                    ? parsed.notToBringMealIds.filter((value): value is string => typeof value === "string")
-                    : Array.isArray(parsed.discardedMealIds)
-                        ? parsed.discardedMealIds.filter((value): value is string => typeof value === "string")
-                    : [];
-                const ingredientIds = Array.isArray(parsed.notToBringIngredientIds)
-                    ? parsed.notToBringIngredientIds.filter((value): value is string => typeof value === "string")
-                    : Array.isArray(parsed.discardedIngredientIds)
-                        ? parsed.discardedIngredientIds.filter((value): value is string => typeof value === "string")
-                    : [];
-                const collapsedIds = Array.isArray(parsed.collapsedMealIds)
-                    ? parsed.collapsedMealIds.filter((value): value is string => typeof value === "string")
-                    : [];
-
-                setNotToBringMealIds(new Set(mealIds));
-                setNotToBringIngredientIds(new Set(ingredientIds));
-                setCollapsedMealIds(new Set(collapsedIds));
+                const preferences = parseShoppingPreferences(parsed);
+                setNotToBringMealIds(new Set(preferences.notToBringMealIds));
+                setNotToBringIngredientIds(
+                    new Set(preferences.notToBringIngredientIds)
+                );
+                setCollapsedMealIds(new Set(preferences.collapsedMealIds));
             } catch (storageError) {
                 console.warn("Boodschappenvoorkeuren konden niet worden geladen.", storageError);
                 setNotToBringMealIds(new Set());
@@ -310,13 +124,11 @@ export default function ShoppingListPage() {
         const mealIds = Array.from(notToBringMealIds);
         const ingredientIds = Array.from(notToBringIngredientIds);
         const collapsedIds = Array.from(collapsedMealIds);
-        const payload: BringPreferenceStoragePayload = {
+        const payload = serializeShoppingPreferences({
             notToBringMealIds: mealIds,
             notToBringIngredientIds: ingredientIds,
             collapsedMealIds: collapsedIds,
-            discardedMealIds: mealIds,
-            discardedIngredientIds: ingredientIds,
-        };
+        });
         void persistShoppingPreferences(bringPreferenceStorageKey, payload);
     }, [
         bringPreferenceStorageKey,
@@ -326,86 +138,20 @@ export default function ShoppingListPage() {
         notToBringMealIds,
     ]);
 
-    const totalIngredientRows = useMemo(
-        () => mealGroups.reduce((total, group) => total + group.ingredients.length, 0),
-        [mealGroups]
+    const bringItems = useMemo(
+        () =>
+            aggregateBringItems(
+                mealGroups,
+                notToBringMealIds,
+                notToBringIngredientIds
+            ),
+        [mealGroups, notToBringIngredientIds, notToBringMealIds]
     );
-
-    const toBringIngredientRows = useMemo(() => {
-        let toBring = 0;
-
-        mealGroups.forEach((group) => {
-            group.ingredients.forEach((ingredient) => {
-                if (
-                    !notToBringMealIds.has(group.id) &&
-                    !notToBringIngredientIds.has(ingredient.id)
-                ) {
-                    toBring += 1;
-                }
-            });
-        });
-
-        return toBring;
-    }, [mealGroups, notToBringIngredientIds, notToBringMealIds]);
-
-    const notToBringIngredientRows = totalIngredientRows - toBringIngredientRows;
-
-    const fullyNotToBringMealCount = useMemo(() => {
-        let count = 0;
-
-        mealGroups.forEach((group) => {
-            const stat = mealStats.get(group.id);
-            if (stat?.allNotToBring) {
-                count += 1;
-            }
-        });
-
-        return count;
-    }, [mealGroups, mealStats]);
-
-    const bringItems = useMemo(() => {
-        const aggregated = new Map<string, BringShareItem>();
-
-        mealGroups.forEach((group) => {
-            group.ingredients.forEach((ingredient) => {
-                if (
-                    notToBringMealIds.has(group.id) ||
-                    notToBringIngredientIds.has(ingredient.id)
-                ) {
-                    return;
-                }
-
-                const existing = aggregated.get(ingredient.normalizedKey);
-                if (existing) {
-                    if (typeof existing.amount === "number" && typeof ingredient.amount === "number") {
-                        existing.amount += ingredient.amount;
-                    }
-                    return;
-                }
-
-                aggregated.set(ingredient.normalizedKey, {
-                    name: ingredient.name,
-                    ...(ingredient.isNumeric && typeof ingredient.amount === "number"
-                        ? {
-                            amount: ingredient.amount,
-                            unit: ingredient.unit ?? "",
-                        }
-                        : {
-                            quantityText: ingredient.quantityText,
-                        }),
-                });
-            });
-        });
-
-        return Array.from(aggregated.values()).sort((a, b) =>
-            a.name.localeCompare(b.name, "nl-NL")
-        );
-    }, [mealGroups, notToBringIngredientIds, notToBringMealIds]);
 
     const toggleMealBringInclusion = (group: MealGroup) => {
         const nextMealIds = new Set(notToBringMealIds);
         const nextIngredientIds = new Set(notToBringIngredientIds);
-        const stat = mealStats.get(group.id);
+        const stat = selectionStats.byMeal.get(group.id);
         const shouldBringAll = Boolean(stat?.allNotToBring);
 
         if (shouldBringAll) {
@@ -491,13 +237,11 @@ export default function ShoppingListPage() {
         const mealIds = Array.from(nextMealIds);
         const ingredientIds = Array.from(nextIngredientIds);
         const collapsedIds = Array.from(nextCollapsedMealIds);
-        const payload: BringPreferenceStoragePayload = {
+        const payload = serializeShoppingPreferences({
             notToBringMealIds: mealIds,
             notToBringIngredientIds: ingredientIds,
             collapsedMealIds: collapsedIds,
-            discardedMealIds: mealIds,
-            discardedIngredientIds: ingredientIds,
-        };
+        });
         void persistShoppingPreferences(bringPreferenceStorageKey, payload);
     };
 
@@ -620,7 +364,7 @@ export default function ShoppingListPage() {
                     <>
                         <div className="mb-6 space-y-4">
                             {mealGroups.map((group) => {
-                                const stat = mealStats.get(group.id) ?? {
+                                const stat = selectionStats.byMeal.get(group.id) ?? {
                                     toBring: group.ingredients.length,
                                     notToBring: 0,
                                     allNotToBring: false,
@@ -728,13 +472,13 @@ export default function ShoppingListPage() {
                         </div>
 
                         <p className="mb-1 text-xs text-gray-600">
-                            {toBringIngredientRows} ingredienten gaan naar Bring
+                            {selectionStats.toBringIngredientRows} ingredienten gaan naar Bring
                         </p>
                         <p className="mb-1 text-xs text-gray-600">
-                            {notToBringIngredientRows} ingredienten niet naar Bring
+                            {selectionStats.notToBringIngredientRows} ingredienten niet naar Bring
                         </p>
                         <p className="mb-3 text-xs text-gray-600">
-                            {fullyNotToBringMealCount} maaltijden volledig niet naar Bring
+                            {selectionStats.fullyNotToBringMealCount} maaltijden volledig niet naar Bring
                         </p>
 
                         {error ? (

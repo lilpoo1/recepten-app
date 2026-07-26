@@ -5,13 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { useStore } from "@/context/StoreContext";
 import { MealType } from "@/types";
-
-function parseMealType(value: string): MealType {
-    if (value === "lunch" || value === "other") {
-        return value;
-    }
-    return "dinner";
-}
+import { parseMealType } from "@/lib/meal-plan";
 
 function AddRecipeContent() {
     const router = useRouter();
