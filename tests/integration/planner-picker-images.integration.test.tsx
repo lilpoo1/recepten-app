@@ -75,10 +75,22 @@ describe("weekmenu receptpicker", () => {
         expect(pastaImage).toHaveAttribute("src", imageDataUrl);
         expect(pastaImage).toHaveAttribute("alt", "");
         expect(pastaImage).toHaveAttribute("aria-hidden", "true");
+        expect(pastaImage?.parentElement).toHaveClass(
+            "w-28",
+            "self-stretch",
+            "overflow-hidden"
+        );
+        expect(pastaButton).toHaveClass("items-stretch", "overflow-hidden");
+        expect(pastaButton).not.toHaveClass("px-3", "py-3");
 
         const soupButton = screen.getByRole("button", { name: /Soep/i });
         const fallback = within(soupButton).getByText("R");
         expect(fallback).toHaveAttribute("aria-hidden", "true");
-        expect(container.querySelectorAll(".h-14.w-14")).toHaveLength(2);
+        expect(fallback).toHaveClass("w-28", "self-stretch");
+        expect(container.querySelectorAll(".w-28.self-stretch")).toHaveLength(2);
+        expect(within(pastaButton).getByText("Pasta").parentElement?.parentElement).toHaveClass(
+            "px-3",
+            "py-2"
+        );
     });
 });

@@ -453,35 +453,39 @@ export default function PlannerPage() {
                                         type="button"
                                         onClick={() => void handleQuickAssign(recipe.id)}
                                         disabled={pickerBusy}
-                                        className="flex w-full items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-3 text-left shadow-sm hover:bg-gray-50 disabled:opacity-60"
+                                        className="flex w-full items-stretch overflow-hidden rounded-lg border border-gray-200 bg-white text-left shadow-sm hover:bg-gray-50 disabled:opacity-60"
                                     >
                                         {recipe.image ? (
-                                            <Image
-                                                src={recipe.image}
-                                                alt=""
-                                                aria-hidden="true"
-                                                width={56}
-                                                height={56}
-                                                unoptimized
-                                                className="h-14 w-14 shrink-0 rounded-lg bg-gray-100 object-cover"
-                                            />
+                                            <span className="relative min-h-14 w-28 shrink-0 self-stretch overflow-hidden bg-gray-100">
+                                                <Image
+                                                    src={recipe.image}
+                                                    alt=""
+                                                    aria-hidden="true"
+                                                    fill
+                                                    sizes="112px"
+                                                    unoptimized
+                                                    className="object-cover"
+                                                />
+                                            </span>
                                         ) : (
                                             <span
                                                 aria-hidden="true"
-                                                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-lg font-semibold text-gray-400"
+                                                className="flex min-h-14 w-28 shrink-0 self-stretch items-center justify-center bg-gray-100 text-lg font-semibold text-gray-400"
                                             >
                                                 R
                                             </span>
                                         )}
-                                        <div className="min-w-0 flex-1">
-                                            <p className="truncate font-semibold text-gray-800">{recipe.title}</p>
-                                            <p className="mt-1 text-xs text-gray-500">
-                                                Tijd {recipe.prepTimeMinutes ?? "-"}m | Basis {recipe.baseServings} pers.
-                                            </p>
+                                        <div className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-3 py-2">
+                                            <div className="min-w-0 flex-1">
+                                                <p className="truncate font-semibold text-gray-800">{recipe.title}</p>
+                                                <p className="mt-1 truncate text-xs text-gray-500">
+                                                    Tijd {recipe.prepTimeMinutes ?? "-"}m | Basis {recipe.baseServings} pers.
+                                                </p>
+                                            </div>
+                                            <span className="shrink-0 text-xs font-semibold text-green-700">
+                                                {pickerBusy ? "Opslaan..." : "Kies"}
+                                            </span>
                                         </div>
-                                        <span className="shrink-0 text-xs font-semibold text-green-700">
-                                            {pickerBusy ? "Opslaan..." : "Kies"}
-                                        </span>
                                     </button>
                                 ))
                             )}
