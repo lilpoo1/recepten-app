@@ -71,29 +71,6 @@ function getItems(fields: Record<string, FirestoreField>, key: string): BringSha
         .filter((item): item is BringShareItem => Boolean(item));
 }
 
-export interface BringImportItem {
-    itemId: string;
-    spec?: string;
-}
-
-export interface BringImportPayload {
-    schema: "bring.importer/v1";
-    items: BringImportItem[];
-}
-
-export function toBringImportItem(item: BringShareItem): BringImportItem {
-    const itemId = item.name.trim();
-    const spec = (item.quantityText ?? "").trim();
-    return spec ? { itemId, spec } : { itemId };
-}
-
-export function toBringImportPayload(snapshot: BringShareSnapshot): BringImportPayload {
-    return {
-        schema: "bring.importer/v1",
-        items: snapshot.items.map((item) => toBringImportItem(item)),
-    };
-}
-
 export async function fetchBringShareSnapshot(token: string): Promise<BringShareSnapshot | null> {
     const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
     const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
@@ -131,4 +108,3 @@ export async function fetchBringShareSnapshot(token: string): Promise<BringShare
         sourceWeekStart: getString(fields, "sourceWeekStart"),
     };
 }
-

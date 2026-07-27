@@ -17,8 +17,8 @@ import {
     readShoppingPreferences,
     removeShoppingPreferences,
 } from "@/lib/storage/browser-storage";
+import { buildBringDeeplink } from "@/lib/bring/import";
 
-const BRING_DEEPLINK_URL = "https://api.getbring.com/rest/bringrecipes/deeplink";
 // Keep legacy storage key to preserve existing week preferences.
 const BRING_PREFERENCE_STORAGE_PREFIX = "shopping:discarded:v2";
 
@@ -100,12 +100,6 @@ function toBringQuantityText(item: BringShareItem): string {
     }
 
     return "";
-}
-
-function toBringDeeplink(url: string): string {
-    return `${BRING_DEEPLINK_URL}?url=${encodeURIComponent(
-        url
-    )}&source=web&baseQuantity=1&requestedQuantity=1`;
 }
 
 export default function ShoppingListPage() {
@@ -531,47 +525,9 @@ export default function ShoppingListPage() {
 
             markWeekAsNotToBring(mealGroups);
 
-            window.location.assign(toBringDeeplink(snapshot.url));
+            window.location.assign(buildBringDeeplink(snapshot.url));
         } catch (err) {
             setError(err instanceof Error ? err.message : "Versturen naar Bring mislukt.");
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const handleSendToBringJsonTest = async () => {
-        if (mode !== "firebase") {
-            return;
-        }
-
-        setBusy(true);
-        setError(null);
-
-        try {
-            if (bringItems.length === 0) {
-                throw new Error("Er zijn geen ingredienten ingesteld op 'Naar Bring'.");
-            }
-
-            const snapshot = await createBringShareSnapshot({
-                title: `Boodschappen ${startDate.toLocaleDateString("nl-NL")}`,
-                items: bringItems.map((item) => {
-                    const quantityText = toBringQuantityText(item);
-                    return quantityText
-                        ? { name: item.name, quantityText }
-                        : { name: item.name };
-                }),
-                servings: 1,
-                sourceWeekStart: startDate.toISOString(),
-            });
-
-            markWeekAsNotToBring(mealGroups);
-
-            const jsonImportUrl = `${window.location.origin}/bring/share/${encodeURIComponent(
-                snapshot.token
-            )}/import`;
-            window.location.assign(toBringDeeplink(jsonImportUrl));
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Versturen naar Bring (JSON test) mislukt.");
         } finally {
             setBusy(false);
         }
@@ -756,14 +712,6 @@ export default function ShoppingListPage() {
                             className="block w-full rounded-lg bg-green-600 py-3 text-center font-bold text-white shadow hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             {busy ? "Bezig met versturen..." : "Stuur naar Bring"}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => void handleSendToBringJsonTest()}
-                            disabled={busy || mode !== "firebase" || !bringPreferencesLoaded}
-                            className="mt-3 block w-full rounded-lg border border-blue-300 bg-white py-3 text-center font-bold text-blue-700 shadow hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                            {busy ? "Bezig met versturen..." : "Stuur naar Bring (JSON test)"}
                         </button>
 
                         <button

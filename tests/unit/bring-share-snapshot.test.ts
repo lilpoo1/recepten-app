@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-    fetchBringShareSnapshot,
-    toBringImportItem,
-    toBringImportPayload,
-} from "@/lib/bring/share-snapshot";
-import type { BringShareSnapshot } from "@/types";
+import { fetchBringShareSnapshot } from "@/lib/bring/share-snapshot";
 
 afterEach(() => {
     vi.unstubAllEnvs();
@@ -12,15 +7,6 @@ afterEach(() => {
 });
 
 describe("Bring share snapshots", () => {
-    it("maakt het afgesproken importer-payload", () => {
-        const snapshot = { items: [{ name: " Tomaat ", quantityText: " 2 stuks " }] } as BringShareSnapshot;
-        expect(toBringImportItem(snapshot.items[0])).toEqual({ itemId: "Tomaat", spec: "2 stuks" });
-        expect(toBringImportPayload(snapshot)).toEqual({
-            schema: "bring.importer/v1",
-            items: [{ itemId: "Tomaat", spec: "2 stuks" }],
-        });
-    });
-
     it("stopt zonder Firebase-configuratie", async () => {
         const fetchMock = vi.fn();
         vi.stubGlobal("fetch", fetchMock);
