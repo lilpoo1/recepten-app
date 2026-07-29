@@ -127,7 +127,11 @@ service cloud.firestore {
         && data.steps is list
         && data.tags is list
         && data.cookingHistory is list
-        && data.createdAt is timestamp
+        && (
+          data.createdAt is timestamp
+          || data.createdAt is int
+          || data.createdAt is float
+        )
         && data.updatedAt is timestamp
         && data.version is int
         && data.version > 0
@@ -298,6 +302,7 @@ service cloud.firestore {
         allow create: if isHouseholdMemberNowOrPending(householdId)
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.version == 1
+          && request.resource.data.createdAt is timestamp
           && validRecipeShape(request.resource.data, householdId);
         allow update: if isHouseholdMemberNowOrPending(householdId)
           && validRecipeShape(request.resource.data, householdId)

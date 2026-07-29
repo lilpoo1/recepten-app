@@ -140,6 +140,20 @@ describeWithEmulator("Firestore recipe recovery rules", () => {
         );
     });
 
+    it("weigert een numerieke aanmaakdatum bij nieuwe recepten", async () => {
+        const database = environment.authenticatedContext("user-a").firestore();
+        await assertFails(
+            setDoc(
+                doc(database, "households", "household-a", "recipes", "numeric-created-at"),
+                {
+                    ...recipe("household-a", "user-a"),
+                    createdAt: 1_700_000_000_000,
+                    mealTypes: ["dinner"],
+                }
+            )
+        );
+    });
+
     it("weigert harde deletes door een huishoudlid", async () => {
         const database = environment.authenticatedContext("user-a").firestore();
         await assertFails(
@@ -203,6 +217,61 @@ describeWithEmulator("Firestore recipe recovery rules", () => {
             version: 2,
             lastRevisionId: "revision-1",
         });
+        await assertSucceeds(batch.commit());
+    });
+
+    it("staat toe dat een legacy recept met numerieke aanmaakdatum voor het eerst typen krijgt", async () => {
+        await environment.withSecurityRulesDisabled(async (context) => {
+            await setDoc(
+                doc(
+                    context.firestore(),
+                    "households",
+                    "household-a",
+                    "recipes",
+                    "recipe-a"
+                ),
+                {
+                    ...recipe("household-a", "user-a"),
+                    id: "recipe-a",
+                    createdAt: 1_700_000_000_000,
+                }
+            );
+        });
+
+        const database = environment.authenticatedContext("user-a").firestore();
+        const recipeRef = doc(
+            database,
+            "households",
+            "household-a",
+            "recipes",
+            "recipe-a"
+        );
+        const oldSnapshot = (await getDoc(recipeRef)).data();
+        if (!oldSnapshot) {
+            throw new Error("Legacy recept ontbreekt.");
+        }
+        const normalizedRecipeFields = { ...oldSnapshot };
+        delete normalizedRecipeFields.id;
+        const revisionRef = doc(recipeRef, "recipeRevisions", "meal-types-revision");
+        const batch = writeBatch(database);
+        batch.set(revisionRef, {
+            householdId: "household-a",
+            recipeId: "recipe-a",
+            version: 1,
+            action: "update",
+            snapshot: oldSnapshot,
+            createdBy: "user-a",
+            createdAt: serverTimestamp(),
+            expiresAt: Timestamp.fromMillis(Date.now() + 98 * 24 * 60 * 60 * 1000),
+        });
+        batch.set(recipeRef, {
+            ...normalizedRecipeFields,
+            mealTypes: ["dinner", "lunch"],
+            updatedAt: serverTimestamp(),
+            version: 2,
+            lastRevisionId: "meal-types-revision",
+        });
+
         await assertSucceeds(batch.commit());
     });
 
